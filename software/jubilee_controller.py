@@ -2,9 +2,9 @@ import socket
 import json
 import time
 from threading import Thread, Lock
-from introspect_interface import IntrospectCLI, cli_method
+from introspect_interface import MASH, cli_method
 
-class JubileeController(IntrospectCLI):
+class JubileeController(MASH):
     # Interval for updating the machine model.
     POLL_INTERVAL_S = 0.1
     SOCKET_ADDRESS = '/var/run/dsf/dcs.sock'
@@ -117,6 +117,17 @@ class JubileeController(IntrospectCLI):
         x_movement = f"X{x} " if x is not None else ""
         y_movement = f"Y{y} " if y is not None else ""
         self.gcode(f"G0 {x_movement}{y_movement} F10000")
+
+    @cli_method
+    def move_xyz_absolute(self, x: float = None, y: float = None, z: float = None):
+        x_movement = f"X{x} " if x is not None else ""
+        y_movement = f"Y{y} " if y is not None else ""
+        z_movement = f"Z{z} " if y is not None else ""
+        self.gcode(f"G0 {x_movement}{y_movement}{z_movement}F10000")
+
+    @cli_method
+    def test_func(self, z: float = None):
+        pass
 
 
     @cli_method
