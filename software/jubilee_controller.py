@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+"""Driver for Controlling Jubilee"""
 import socket
 import json
 import time
@@ -5,16 +7,19 @@ from threading import Thread, Lock
 from introspect_interface import MASH, cli_method
 
 class JubileeController(MASH):
+    """Driver for sending motion cmds and polling the machine state."""
     # Interval for updating the machine model.
     POLL_INTERVAL_S = 0.1
     SOCKET_ADDRESS = '/var/run/dsf/dcs.sock'
     MM_BUFFER_SIZE = 32768
 
 
-    def __init__(self, debug=False):
+    def __init__(self, debug=False, simulated=False):
         """Start with sane defaults. Setup command and subscribe connections."""
         super().__init__()
         self.debug = debug
+        self.simulated = simulated
+        print(self.simulated)
         self.machine_model = {}
         self.command_socket = None
         self.connect()
@@ -22,6 +27,8 @@ class JubileeController(MASH):
             Thread(target=self.update_machine_model_worker,
                     name="Machine Model Update Thread",
                     daemon=True).start() # terminate when the main thread exits
+        #TODO: figure out how to get the whole tree of cmds from any attributes
+        #      that also inherit from MASH such that we can "cd" into them.
 
     def cli(self):
         """Drop the user into a command line interface."""
@@ -30,6 +37,8 @@ class JubileeController(MASH):
 
     def connect(self):
         """Connect to Jubilee over the default unix socket."""
+        if self.simulated:
+            return
         self.command_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.command_socket.connect(self.__class__.SOCKET_ADDRESS)
         self.command_socket.setblocking(True)
@@ -47,6 +56,8 @@ class JubileeController(MASH):
 
     def update_machine_model_worker(self):
         """Thread worker for periodically updating the machine model."""
+        if self.simulated:
+            return
         # Subscribe to machine model updates
         subscribe_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         subscribe_socket.connect(self.__class__.SOCKET_ADDRESS)
@@ -95,7 +106,12 @@ class JubileeController(MASH):
     @cli_method
     def gcode(self, cmd: str = ""):
         """Send a string of GCode"""
-        j=json.dumps({"code": cmd,"channel": 0,"command": "SimpleCode"}).encode()
+        gcode_packet = {"code": cmd,"channel": 0,"command": "SimpleCode"}
+        if self.debug or self.simulated:
+            print(f"sending: {gcode_packet}")
+        if self.simulated:
+            return
+        j=json.dumps(gcode_packet.encode())
         self.command_socket.send(j)
         r=self.command_socket.recv(self.__class__.MM_BUFFER_SIZE).decode()
         if ('Error' in r):
@@ -108,6 +124,9 @@ class JubileeController(MASH):
 
     @cli_method
     def home_xy(self):
+        """Home the XY axes.
+        Home Y before X to prevent possibility of crashing into the tool rack.
+        """
         self.gcode("G28 Y")
         self.gcode("G28 X")
 
@@ -162,6 +181,6 @@ class JubileeController(MASH):
 
 
 if __name__ == "__main__":
-    with JubileeController() as jubilee:
+    with JubileeController(simulated=True) as jubilee:
         #jubilee.home_xy()
         jubilee.cli()

@@ -8,11 +8,19 @@ from sys import stdin, stdout
 
 # TODO: enable overriding of custom completions
 # TODO: enable mixed args or kwargs input
+# TODO: tab completion display for used-up args entered as positional arguments
+
+# TODO: enable tab completion for string input with limit scope of opions.
+# TODO: enable tab completion for help
 
 def cli_method(func):
     """Decorator to register method as available to the CLI."""
     func.is_cli_method = True
     return func
+
+class UserInputError(Exception):
+    """Base exception for user inputting something incorrectly."""
+    pass
 
 
 class MASH(object):
@@ -28,7 +36,6 @@ class MASH(object):
     """
     prompt = ">>>"
     ruler = '='
-    nohelp = "*** No help on %s"
     use_rawinput = True
     complete_key = 'tab'
     DELIM = ' '
@@ -101,21 +108,9 @@ class MASH(object):
 
         return definitions
 
-    def complete_call(self):
-        """complete the function call based on method definition content."""
-        pass
-
-    def display_help(self):
-        """display help for a given function."""
-        pass
-
-    @cli_method
-    def help(self, func_name):
-        """Display usage for a particular function."""
-        print(self.cli_method_definitions[func_name]["doc"])
 
     def _match_display_hook(self, substitution, matches, longest_match_length):
-        """Display custom response to tab completion."""
+        """Display custom response when invoking tab completion."""
         # Warning: exceptions raised in this fn are not catchable.
         line = readline.get_line_buffer() # The whole line.
         cmd_with_args = line.split()
@@ -204,25 +199,51 @@ class MASH(object):
         while not stop:
             try:
                 line = input(self.prompt)
-                print(f"Executing {line}")
+                if self.debug:
+                    print(f"Executing: '{line}'")
                 ## Extract fn and args.
                 fn_name, *arg_blocks = line.split()
                 kwargs = {}
-                kwargs_already_specified = False
+                end_of_args = False
+
+                # TODO: check if fn even exists.
+
+                # TODO: count args here first so we can igore the count later.
 
                 # Collect args and kwargs, enforcing args before kwargs.
                 for arg_index, arg_block in enumerate(arg_blocks):
-                    try:
+                    try: # Assume kwarg.
                         arg_name, val_str = arg_block.split("=")
-                        kwargs_already_specified = True
+                        end_of_args = True
                     except (ValueError, AttributeError):
-                        if kwargs_already_specified:
+                        if end_of_args:
                             print("Error: all positional arguments must be specified before any keyword arguments.")
-                            continue
-                        arg_name = self.cli_method_definitions[fn_name]['param_order'][arg_index]
+                            raise UserInputError
+                        try:
+                            arg_name = self.cli_method_definitions[fn_name]['param_order'][arg_index]
+                        except IndexError:
+                            print("Error: too many positional arguments.")
+                            raise UserInputError
                         val_str = arg_block
+                    # Check to see if this arg/kwarg is type-hinted.
+                    if self.cli_method_definitions[fn_name]['parameters'][arg_name]['type'] is None:
+                        print(f"Error: cannot infer type without type hinting argument: {arg_name}.")
+                        break
                     val = self.cli_method_definitions[fn_name]['parameters'][arg_name]['type'](val_str)
                     kwargs[arg_name] = val
                 self.cli_methods[fn_name](**kwargs)
-            except EOFError:
+            except (EOFError, UserInputError):
                 line = 'EOF'
+
+
+    @cli_method
+    def help(self, func_name: str = None):
+        """Display usage for a particular function."""
+        if func_name is None:
+            print(self.help.__doc__)
+            return
+        try:
+            print(self.cli_method_definitions[func_name]["doc"])
+        except KeyError:
+            print(f"Error: function {func_name} does not exist.")
+
