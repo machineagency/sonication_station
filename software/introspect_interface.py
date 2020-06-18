@@ -53,6 +53,7 @@ class MASH(object):
         # In-function completions for calling input() within a fn.
         # Note that this variable must be cleared when finished with it.
         self.completions = None
+        self.prompt = self.__class__.prompt
 
 
     def _get_cli_methods(self):
@@ -124,6 +125,7 @@ class MASH(object):
     def _match_display_hook(self, substitution, matches, longest_match_length):
         """Display custom response when invoking tab completion."""
         # Warning: exceptions raised in this fn are not catchable.
+        # TODO: instead of redisplaying the prompt, we should redisplay the input buffer.
         line = readline.get_line_buffer() # The whole line.
         cmd_with_args = line.split()
         print()
@@ -143,6 +145,17 @@ class MASH(object):
                 print(f"{arg}=<{arg_type.__name__}>", end=" ")
         print()
         print(self.prompt, readline.get_line_buffer(), sep='', end='', flush=True)
+
+
+    def input(self, prompt=None):
+        """Wrapper for prompt function.
+        Enables tab-completion while preserving full prompt prefix."""
+        # Override the prompt if a custom prompt is requested.
+        if prompt:
+            self.prompt = prompt
+        else:
+            self.prompt = self.__class__.prompt
+        return input(self.prompt)
 
 
     def complete(self, text, state, *args, **kwargs):
@@ -214,7 +227,7 @@ class MASH(object):
         stop = False
         while not stop:
             try:
-                line = input(self.prompt)
+                line = self.input()
                 if line == "":
                     continue
                 if self.debug:

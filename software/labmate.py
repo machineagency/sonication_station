@@ -117,19 +117,18 @@ class Labmate(JubileeMotionController):
     @cli_method
     def setup_plate(self, deck_index: int):
         """Configure the plate type and location."""
-        pass
-        #try:
-        #    self.completions = [6, 48, 96]
-        #    well_count = input(f"Enter the number of wells \r{self.prompt}")
-        #    self.deck_plate_config[deck_index]["well_count"] = int(well_count)
-        #    self.completions = [2, 6, 8]
-        #    row_count = input(f"Enter the number of rows.\r{self.prompt}")
-        #    self.deck_plate_config[deck_index]["row_count"] = int(row_count)
-        #    self.completions = [3, 8, 12]
-        #    col_count = input(f"Enter the number of columns.\r{self.prompt}")
-        #    self.deck_plate_config[deck_index]["col_count"] = int(col_count)
-        #finally:
-        #    self.completions = None
+        try:
+            self.completions = ["6", "48", "96"]
+            well_count = self.input(f"Enter the number of wells: ")
+            self.deck_plate_config[deck_index]["well_count"] = int(well_count)
+            self.completions = ["2", "6", "8"]
+            row_count = self.input(f"Enter the number of rows: ")
+            self.deck_plate_config[deck_index]["row_count"] = int(row_count)
+            self.completions = ["3", "8", "12"]
+            col_count = self.input(f"Enter the number of columns: ")
+            self.deck_plate_config[deck_index]["col_count"] = int(col_count)
+        finally:
+            self.completions = None
 
 
     def __enter__(self):
