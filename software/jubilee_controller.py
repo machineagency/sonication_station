@@ -22,7 +22,6 @@ class JubileeMotionController(MASH):
         super().__init__()
         self.debug = debug
         self.simulated = simulated
-        print(self.simulated)
         self.machine_model = {}
         self.command_socket = None
         self.connect()
@@ -103,7 +102,8 @@ class JubileeMotionController(MASH):
 
     def disconnect(self):
         """Close the connection."""
-        self.command_socket.close()
+        if not self.simulated:
+            self.command_socket.close()
 
 
     def gcode(self, cmd: str = ""):

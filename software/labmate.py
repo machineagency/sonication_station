@@ -17,7 +17,9 @@ class Labmate(JubileeMotionController):
         {"id": "",
          "starting_well_position": (None, None),
          "ending_well_position": (None, None),
-         "well_count": None}
+         "well_count": None,
+         "row_count": None,
+         "col_count": None}
 
 
     def __init__(self, debug=False, simulated=False, deck_config_filepath=None):
@@ -99,7 +101,35 @@ class Labmate(JubileeMotionController):
         """Save the current configuration of plates on the deck to a file."""
         with open(file_path, 'w+') as config_file:
             json.dump(self.deck_plate_config, config_file)
-            print(f"Saving configurationt to {file_path}.")
+            print(f"Saving configuration to {file_path}.")
+
+    @cli_method
+    def test_input(self):
+        """hello."""
+        try:
+            self.completions = ["yo", "why hello there."]
+            response = input("test input:")
+            print(f"response: {response}")
+        finally:
+            self.completions = None
+
+
+    @cli_method
+    def setup_plate(self, deck_index: int):
+        """Configure the plate type and location."""
+        pass
+        #try:
+        #    self.completions = [6, 48, 96]
+        #    well_count = input(f"Enter the number of wells \r{self.prompt}")
+        #    self.deck_plate_config[deck_index]["well_count"] = int(well_count)
+        #    self.completions = [2, 6, 8]
+        #    row_count = input(f"Enter the number of rows.\r{self.prompt}")
+        #    self.deck_plate_config[deck_index]["row_count"] = int(row_count)
+        #    self.completions = [3, 8, 12]
+        #    col_count = input(f"Enter the number of columns.\r{self.prompt}")
+        #    self.deck_plate_config[deck_index]["col_count"] = int(col_count)
+        #finally:
+        #    self.completions = None
 
 
     def __enter__(self):

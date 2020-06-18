@@ -50,6 +50,10 @@ class MASH(object):
         import pprint
         pprint.pprint(self.cli_method_definitions)
 
+        # In-function completions for calling input() within a fn.
+        # Note that this variable must be cleared when finished with it.
+        self.completions = None
+
 
     def _get_cli_methods(self):
         cli_methods = {}
@@ -152,10 +156,15 @@ class MASH(object):
         This fn gets called repeatedly with increasing values of state until
         the fn returns None.
         """
+        # Warning: exceptions raised in this fn are not catchable.
+
         text = text.lstrip() # what we are matching against
         line = readline.get_line_buffer() # The whole line.
         cmd_with_args = line.split()
 
+
+        if self.completions:
+            return [c for c in self.completions if c.startswith(text)][state]
 
         # Complete the fn name
         if len(cmd_with_args) == 0 or \
@@ -206,6 +215,8 @@ class MASH(object):
         while not stop:
             try:
                 line = input(self.prompt)
+                if line == "":
+                    continue
                 if self.debug:
                     print(f"Executing: '{line}'")
                 ## Extract fn and args.
