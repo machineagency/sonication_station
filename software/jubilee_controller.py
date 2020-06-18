@@ -29,6 +29,7 @@ class JubileeMotionController(MASH):
             Thread(target=self.update_machine_model_worker,
                     name="Machine Model Update Thread",
                     daemon=True).start() # terminate when the main thread exits
+        self.absolute_moves = True
         #TODO: figure out how to get the whole tree of cmds from any attributes
         #      that also inherit from MASH such that we can "cd" into them.
 
@@ -141,25 +142,40 @@ class JubileeMotionController(MASH):
         if response.lower() in ["y", "yes"]:
             self.gcode("G28 Z")
 
+    def _move_xyz(self, x: float = None, y: float = None, z: float = None,
+                wait: bool = True):
+        """Move in XY. (Absolute or relative set externally.)"""
+        # TODO: check if machine is homed first.
+        x_movement = f"X{x} " if x is not None else ""
+        y_movement = f"Y{y} " if y is not None else ""
+        z_movement = f"Z{z} " if z is not None else ""
+        self.gcode(f"G0 {x_movement}{y_movement}{z_movement}F10000")
+
+
+    def move_xyz_relative(self, x: float = None, y: float = None,
+                          z: float = None, wait: bool = True):
+        """Do a relative move in XYZ."""
+        if self.absolute_moves:
+            self.absolute_moves = False
+            self.gcode("G91")
+        self._move_xyz(x=x, y=y, z=z, wait=wait)
+
 
     @cli_method
     def move_xy_absolute(self, x: float = None, y: float = None,
                          wait: bool = True):
         """Do an absolute move in XY."""
-        # TODO: check if machine is homed first.
-        x_movement = f"X{x} " if x is not None else ""
-        y_movement = f"Y{y} " if y is not None else ""
-        self.gcode(f"G0 {x_movement}{y_movement} F10000")
+        self.move_xyz_absolute(x=x,y=y,z=None, wait=wait)
 
     @cli_method
     def move_xyz_absolute(self, x: float = None, y: float = None,
                           z: float = None, wait: bool = True):
         """Do an absolute move in XYZ."""
-        # TODO: check if machine is homed first.
-        x_movement = f"X{x} " if x is not None else ""
-        y_movement = f"Y{y} " if y is not None else ""
-        z_movement = f"Z{z} " if y is not None else ""
-        self.gcode(f"G0 {x_movement}{y_movement}{z_movement}F10000")
+        # TODO: use push and pop sematics instead.
+        if not self.absolute_moves:
+            self.absolute_moves = True
+            self.gcode("G90")
+        self._move_xyz(x, y, z, wait)
 
 
     @cli_method
@@ -192,7 +208,7 @@ class JubileeMotionController(MASH):
         pprint.pprint(self.machine_model)
 
 
-    #@cli_method
+    @cli_method
     def keyboard_control(self):
         """Use keyboard input to move the machine in steps.
         W = forwards (-Y)
@@ -204,14 +220,48 @@ class JubileeMotionController(MASH):
         ← = decrease movement step size
         ↓ = increase movement step size
         """
-        #stop = False
-        #while not stop:
-        #    char = getch.getch()
-        #    if char == b'\x1b':
-        #        print("received: escape char!")
-        #        print(readline.get_line_buffer())
-        pass
+        import curses
+        step_size = 1
+        stdscr = curses.initscr()
+        curses.cbreak()
+        curses.noecho()
+        stdscr.keypad(True)
 
+        stdscr.addstr(0,0,"Manual Control. Press 'q' to quit.")
+        stdscr.addstr(1,0,"Commands:")
+        stdscr.addstr(2,0,"  Arrow keys for XY; '[' and ']' to increase movement step size")
+        stdscr.addstr(3,0,"  '[' and ']' to decrease/increase movement step size")
+        stdscr.addstr(4,0,"  's' and 'w' to lower/raise z")
+        stdscr.refresh()
+
+        key = ''
+        while key != ord('q'):
+            key = stdscr.getch()
+            stdscr.refresh()
+            if key == curses.KEY_UP:
+                self.move_xyz_relative(y=-step_size)
+            elif key == curses.KEY_DOWN:
+                self.move_xyz_relative(y=step_size)
+            elif key == curses.KEY_LEFT:
+                self.move_xyz_relative(x=step_size)
+            elif key == curses.KEY_RIGHT:
+                self.move_xyz_relative(x=-step_size)
+            elif key == ord('w'):
+                self.move_xyz_relative(z=step_size)
+            elif key == ord('s'):
+                self.move_xyz_relative(z=-step_size)
+            elif key == ord('['):
+                if step_size > 1:
+                    step_size -= 1
+                stdscr.addstr(5,0,f"XY Step Size: {step_size:<3}")
+            elif key == ord(']'):
+                if step_size < 10:
+                    step_size += 1
+                stdscr.addstr(5,0,f"XY Step Size: {step_size:<3}")
+        curses.nocbreak()
+        stdscr.keypad(False)
+        curses.echo()
+        curses.endwin()
 
 
     def __enter__(self):

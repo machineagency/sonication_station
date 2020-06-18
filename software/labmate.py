@@ -21,10 +21,25 @@ class Labmate(JubileeMotionController):
          "row_count": None,
          "col_count": None}
 
+    splash = \
+"""
+       __      __    _ __                     
+      / /_  __/ /_  (_) /__  ___              
+ __  / / / / / __ \/ / / _ \/ _ \             
+/ /_/ / /_/ / /_/ / / /  __/  __/             
+\_____\__,_/_._____/_/\___/\___/      __      
+   / /   ____ _/ /_  ____ ___  ____ _/ /____  
+  / /   / __ `/ __ \/ __ `__ \/ __ `/ __/ _ \ 
+ / /___/ /_/ / /_/ / / / / / / /_/ / /_/  __/ 
+/_____/\__,_/_.___/_/ /_/ /_/\__,_/\__/\___/  
+                                              
+"""
+
 
     def __init__(self, debug=False, simulated=False, deck_config_filepath=None):
         """Start with sane defaults. Setup Deck configuration."""
         super().__init__(debug, simulated)
+        print(self.__class__.splash)
         self.safe_z = None
         self.deck_plate_config = [copy.deepcopy(self.__class__.DECK_PLATE_CONFIG) \
                             for i in range(self.__class__.DECK_PLATE_COUNT)]
@@ -121,12 +136,21 @@ class Labmate(JubileeMotionController):
             self.completions = ["6", "48", "96"]
             well_count = self.input(f"Enter the number of wells: ")
             self.deck_plate_config[deck_index]["well_count"] = int(well_count)
+
+            # TODO: lookup well by well number count instead of asking for this.
             self.completions = ["2", "6", "8"]
             row_count = self.input(f"Enter the number of rows: ")
             self.deck_plate_config[deck_index]["row_count"] = int(row_count)
             self.completions = ["3", "8", "12"]
             col_count = self.input(f"Enter the number of columns: ")
             self.deck_plate_config[deck_index]["col_count"] = int(col_count)
+
+            # Move to the plate locations.
+            # First Well ctrl prompt.
+            # Get machine's current location if not cancelled.
+
+            # Last Well ctrl prompt.
+            # Get machine's current location if not cancelled.
         finally:
             self.completions = None
 
