@@ -3,10 +3,13 @@
 import socket
 import json
 import time
+#from sys import stdin # alternative to input() for keyboard control
+import readline
+import getch
 from threading import Thread, Lock
 from introspect_interface import MASH, cli_method
 
-class JubileeController(MASH):
+class JubileeMotionController(MASH):
     """Driver for sending motion cmds and polling the machine state."""
     # Interval for updating the machine model.
     POLL_INTERVAL_S = 0.1
@@ -103,7 +106,6 @@ class JubileeController(MASH):
         self.command_socket.close()
 
 
-    @cli_method
     def gcode(self, cmd: str = ""):
         """Send a string of GCode"""
         gcode_packet = {"code": cmd,"channel": 0,"command": "SimpleCode"}
@@ -130,23 +132,34 @@ class JubileeController(MASH):
         self.gcode("G28 Y")
         self.gcode("G28 X")
 
+    @cli_method
+    def home_z(self):
+        """Home the Z axis.
+        Note that the Deck must be clear first.
+        """
+        response = input("Is the Deck free of obstacles? [y/n]")
+        if response.lower() in ["y", "yes"]:
+            self.gcode("G28 Z")
+
 
     @cli_method
-    def move_xy_absolute(self, x: float = None, y: float = None):
+    def move_xy_absolute(self, x: float = None, y: float = None,
+                         wait: bool = True):
+        """Do an absolute move in XY."""
+        # TODO: check if machine is homed first.
         x_movement = f"X{x} " if x is not None else ""
         y_movement = f"Y{y} " if y is not None else ""
         self.gcode(f"G0 {x_movement}{y_movement} F10000")
 
     @cli_method
-    def move_xyz_absolute(self, x: float = None, y: float = None, z: float = None):
+    def move_xyz_absolute(self, x: float = None, y: float = None,
+                          z: float = None, wait: bool = True):
+        """Do an absolute move in XYZ."""
+        # TODO: check if machine is homed first.
         x_movement = f"X{x} " if x is not None else ""
         y_movement = f"Y{y} " if y is not None else ""
         z_movement = f"Z{z} " if y is not None else ""
         self.gcode(f"G0 {x_movement}{y_movement}{z_movement}F10000")
-
-    @cli_method
-    def test_func(self, z: float = None):
-        pass
 
 
     @cli_method
@@ -173,6 +186,34 @@ class JubileeController(MASH):
             self.gcode(f"G92 {axis.upper()}0")
 
 
+    #@cli_method
+    def print_machine_model(self):
+        import pprint
+        pprint.pprint(self.machine_model)
+
+
+    #@cli_method
+    def keyboard_control(self):
+        """Use keyboard input to move the machine in steps.
+        W = forwards (-Y)
+        A = left (+X)
+        S = right (-X)
+        D = backwards (+Y)
+        ↑ = tool tip up (+Z)
+        ↓ = tool tip down (-Z)
+        ← = decrease movement step size
+        ↓ = increase movement step size
+        """
+        #stop = False
+        #while not stop:
+        #    char = getch.getch()
+        #    if char == b'\x1b':
+        #        print("received: escape char!")
+        #        print(readline.get_line_buffer())
+        pass
+
+
+
     def __enter__(self):
       return self
 
@@ -181,6 +222,6 @@ class JubileeController(MASH):
 
 
 if __name__ == "__main__":
-    with JubileeController(simulated=True) as jubilee:
+    with JubileeMotionController(simulated=True) as jubilee:
         #jubilee.home_xy()
         jubilee.cli()

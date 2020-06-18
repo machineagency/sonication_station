@@ -3,7 +3,6 @@
 from inspect import getmembers, ismethod, signature
 from enum import Enum
 import readline
-from sys import stdin, stdout
 
 
 # TODO: enable overriding of custom completions
@@ -12,6 +11,9 @@ from sys import stdin, stdout
 
 # TODO: enable tab completion for string input with limit scope of opions.
 # TODO: enable tab completion for help
+
+# TODO: Handle edge case where position-based arguments are later overwritten by keyword-style input
+# Example: move_xy_absolute 10 x=10
 
 def cli_method(func):
     """Decorator to register method as available to the CLI."""
@@ -34,7 +36,7 @@ class MASH(object):
     You may expose methods by decorating them with the cli_method decorator.
 
     """
-    prompt = ">>>"
+    prompt = ">>> "
     ruler = '='
     use_rawinput = True
     complete_key = 'tab'
@@ -90,8 +92,14 @@ class MASH(object):
                 parameter_sig = sig.parameters[parameter_name]
                 if parameter_sig.annotation is not parameter_sig.empty:
                     parameter_type = parameter_sig.annotation
-                #parameter["type"] = parameter_type.__name__ if parameter_type is not None else None
-                parameter["type"] = parameter_type if parameter_type is not None else None
+                parameter['type'] = parameter_type if parameter_type is not None else None
+
+                # Enforce type hinting for all decoorated methods.
+                if parameter['type'] is None:
+                    raise SyntaxError(f"Error: {fn_name} must be type hinted. \
+                                        Cannot infer type for arg: {arg_name}.")
+
+                # Check for defaults.
                 if parameter_sig.default is not parameter_sig.empty:
                     parameter["default"] = parameter_sig.default
                 if parameter_type is not None and issubclass(parameter_type, Enum):
@@ -130,8 +138,7 @@ class MASH(object):
                 arg_type = self.cli_method_definitions[self.func_name]['parameters'][arg]['type']
                 print(f"{arg}=<{arg_type.__name__}>", end=" ")
         print()
-        print(self.prompt, readline.get_line_buffer(), sep='', end='')
-        stdout.flush()
+        print(self.prompt, readline.get_line_buffer(), sep='', end='', flush=True)
 
 
     def complete(self, text, state, *args, **kwargs):
@@ -185,7 +192,7 @@ class MASH(object):
         #return None
 
 
-    def cmdloop(self, intro=None):
+    def cmdloop(self):
         """Repeatedly issue a prompt, accept input, parse an initial prefix
         off the received input, and dispatch to action methods, passing them
         the remainder of the line as argument.
@@ -204,35 +211,39 @@ class MASH(object):
                 ## Extract fn and args.
                 fn_name, *arg_blocks = line.split()
                 kwargs = {}
-                end_of_args = False
 
-                # TODO: check if fn even exists.
+                no_more_args = False # indicates end of positional args in fn signature
 
-                # TODO: count args here first so we can igore the count later.
+                # Check if fn even exists.
+                if fn_name not in self.cli_method_definitions:
+                    raise UserInputError(f"Error: {fn_name} is not a valid command.")
+
+                # Ensure required arg count is met.
+                # TODO: handle case with positional parameters with defaults.
+                if len(arg_blocks) > len(self.cli_method_definitions[fn_name]['param_order']):
+                    raise UserInputError("Error: too many positional arguments.")
 
                 # Collect args and kwargs, enforcing args before kwargs.
                 for arg_index, arg_block in enumerate(arg_blocks):
-                    try: # Assume kwarg.
+                    # Assume kwarg with key/value pair split by '='
+                    try:
                         arg_name, val_str = arg_block.split("=")
-                        end_of_args = True
+                        no_more_args = True
+                    # Otherwise: positional arg with order enforcement.
                     except (ValueError, AttributeError):
-                        if end_of_args:
-                            print("Error: all positional arguments must be specified before any keyword arguments.")
-                            raise UserInputError
-                        try:
-                            arg_name = self.cli_method_definitions[fn_name]['param_order'][arg_index]
-                        except IndexError:
-                            print("Error: too many positional arguments.")
-                            raise UserInputError
+                        # Enforce that positional args come before kwargs.
+                        if no_more_args:
+                            raise UserInputError("Error: all positional \
+                                                 arguments must be specified before any keyword arguments.")
+                        arg_name = self.cli_method_definitions[fn_name]['param_order'][arg_index]
                         val_str = arg_block
-                    # Check to see if this arg/kwarg is type-hinted.
-                    if self.cli_method_definitions[fn_name]['parameters'][arg_name]['type'] is None:
-                        print(f"Error: cannot infer type without type hinting argument: {arg_name}.")
-                        break
                     val = self.cli_method_definitions[fn_name]['parameters'][arg_name]['type'](val_str)
                     kwargs[arg_name] = val
+                # TODO: apply fn defaults if any exist.
+                # Invoke the fn.
                 self.cli_methods[fn_name](**kwargs)
-            except (EOFError, UserInputError):
+            except (EOFError, UserInputError) as e:
+                print(e)
                 line = 'EOF'
 
 
@@ -245,5 +256,5 @@ class MASH(object):
         try:
             print(self.cli_method_definitions[func_name]["doc"])
         except KeyError:
-            print(f"Error: function {func_name} does not exist.")
+            print(f"Error: method {func_name} is not a valid command.")
 
