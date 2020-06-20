@@ -6,14 +6,9 @@ import readline
 
 
 # TODO: replace input entirely with something that handles "ESC" characters and returns None.
-# TODO: enable mixed args or kwargs input
-# TODO: tab completion display for used-up args entered as positional arguments
 
-# TODO: enable tab completion for string input with limit scope of opions.
+# TODO: enable tab completion for string input with limited scope of opions. (Custom enums?)
 # TODO: enable tab completion for help
-
-# TODO: Handle edge case where position-based arguments are later overwritten by keyword-style input
-# Example: move_xy_absolute 10 x=10
 
 def cli_method(func):
     """Decorator to register method as available to the CLI."""
@@ -184,31 +179,60 @@ class MASH(object):
         cmd_with_args = line.split()
 
 
+        # Take custom overrides if any are defined.
         if self.completions:
             return [c for c in self.completions if c.startswith(text)][state]
 
-        # Complete the fn name
+        # Complete the fn name.
         if len(cmd_with_args) == 0 or \
             (len(cmd_with_args) == 1 and line[-1] is not self.__class__.DELIM):
             # Return matches but omit match if it is fully-typed.
             results = [fn for fn in self.cli_methods.keys() if fn.startswith(text) and fn != text]
             return results[state]
 
-        # Complete the fn arg
+        # Complete the fn params.
         self.func_name = cmd_with_args[0]
+        param_signature = cmd_with_args[1:]
         self.func_params = self.cli_method_definitions[self.func_name]['param_order']
 
-        # Filter out completions if already populated.
-        # TODO: handle completion filtering for positional arguments.
+        # First filter out already-entered positional arguments.
+        # Abort upon first keyword.
+        first_kwarg_found = False
+        first_kwarg_index = 0
+        for entry_index, text_block in enumerate(param_signature):
+            kwarg = None
+            # Check if text entry is a fully-entered kwarg.
+            for param_order_index, param_name in enumerate(self.func_params):
+                completion = f"{param_name}="
+                #print(f"text block: {text_block} | completion {completion}")
+                if text_block.startswith(completion):
+                    kwarg = param_name
+                    if not first_kwarg_found:
+                        first_kwarg_found = True
+                        first_kwarg_index = entry_index
+                    break
+            if first_kwarg_found:
+                break
+            # Don't remove the last element if it is not fully entered.
+            if text_block == param_signature[-1] and line[-1] is not self.__class__.DELIM:
+                break
+            first_kwarg_index += 1
+
+        self.func_params = self.func_params[first_kwarg_index:]
+
+        #print(f"found kwarg: {first_kwarg_found} | at index {first_kwarg_index}")
+        #print(f"unfiltered params: {self.func_params}")
+
+        # Then generate completion list from remaining possible params.
         func_param_completions = []
-        for func_name in self.func_params:
-            completion = f"{func_name}="
-            # last arg case: arg is already completed but missing a space
-            if line[-1] is not self.__class__.DELIM and cmd_with_args[-1].startswith(completion):
+        for param_order_index, param_name in enumerate(self.func_params):
+            completion = f"{param_name}="
+            # No space case: arg is fully typed but missing a space
+            if line[-1] is not self.__class__.DELIM and param_signature[-1].startswith(completion):
                 return None
-            # up-to-last-arg check
+            # Filter out already-populated argument options by name and position.
             skip = False
-            for text_block in cmd_with_args[1:]:
+            for text_block in param_signature:
                 if text_block.startswith(completion):
                     skip = True
                     break
@@ -217,8 +241,6 @@ class MASH(object):
                 func_param_completions.append(completion)
 
         return func_param_completions[state]
-
-        #return None
 
 
     def cmdloop(self):
@@ -250,7 +272,6 @@ class MASH(object):
                     raise UserInputError(f"Error: {fn_name} is not a valid command.")
 
                 # Ensure required arg count is met.
-                # TODO: handle case with positional parameters with defaults.
                 if len(arg_blocks) > len(self.cli_method_definitions[fn_name]['param_order']):
                     raise UserInputError("Error: too many positional arguments.")
 
