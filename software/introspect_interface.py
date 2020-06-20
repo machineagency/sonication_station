@@ -5,7 +5,7 @@ from enum import Enum
 import readline
 
 
-# TODO: enable overriding of custom completions
+# TODO: replace input entirely with something that handles "ESC" characters and returns None.
 # TODO: enable mixed args or kwargs input
 # TODO: tab completion display for used-up args entered as positional arguments
 
@@ -47,8 +47,8 @@ class MASH(object):
         """collect functions."""
         self.cli_methods = self._get_cli_methods()
         self.cli_method_definitions = self._get_cli_method_definitions()
-        #import pprint
-        #pprint.pprint(self.cli_method_definitions)
+        import pprint
+        pprint.pprint(self.cli_method_definitions)
 
         # In-function completions for calling input() within a fn.
         # Note that this variable must be cleared when finished with it.
@@ -125,18 +125,26 @@ class MASH(object):
     def _match_display_hook(self, substitution, matches, longest_match_length):
         """Display custom response when invoking tab completion."""
         # Warning: exceptions raised in this fn are not catchable.
-        # TODO: instead of redisplaying the prompt, we should redisplay the input buffer.
         line = readline.get_line_buffer() # The whole line.
         cmd_with_args = line.split()
         print()
+        # Render explicitly specified completions in the original order:
+        if self.completions:
+            # matches arrive alphebatized. Specify order according to original.
+            matches = sorted(matches, key=lambda x: self.completions.index(x))
+            for match in matches:
+                print(match, end=" ")
         # Render Function Name:
-        if len(cmd_with_args) == 0 or \
+        elif len(cmd_with_args) == 0 or \
             (len(cmd_with_args) == 1 and line[-1] is not self.__class__.DELIM):
             # Render function name matches.
             for match in matches:
                 print(match, end=" ")
         # Render Function Args:
         else:
+            param_order = [f"{x}=" for x in self.cli_method_definitions[self.func_name]['param_order']]
+            # matches arrive alphebatized. Specify order according to original.
+            matches = sorted(matches, key=lambda x: param_order.index(x))
             # Render argument matches with type.
             # Track argument index such that we only display valid options.
             for arg_completion in matches:
@@ -188,8 +196,7 @@ class MASH(object):
 
         # Complete the fn arg
         self.func_name = cmd_with_args[0]
-        self.func_params = \
-            [p for p in self.cli_method_definitions[self.func_name]['parameters'].keys()]
+        self.func_params = self.cli_method_definitions[self.func_name]['param_order']
 
         # Filter out completions if already populated.
         # TODO: handle completion filtering for positional arguments.

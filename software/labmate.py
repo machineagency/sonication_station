@@ -11,12 +11,16 @@ from jubilee_controller import JubileeMotionController
 class Labmate(JubileeMotionController):
     """Driver for sending motion cmds and polling the machine state."""
 
+    WELL_COUNT_TO_ROWS = {96: (8, 12),
+                          48: (6, 8),
+                           6: (2, 3)}
     DECK_PLATE_COUNT = 6
 
     DECK_PLATE_CONFIG = \
         {"id": "",
-         "starting_well_position": (None, None),
-         "ending_well_position": (None, None),
+         "starting_well_centroid": (None, None),
+         "first_row_last_col_well_centroid": (None, None),
+         "ending_well_centroid": (None, None),
          "well_count": None,
          "row_count": None,
          "col_count": None}
@@ -72,7 +76,6 @@ class Labmate(JubileeMotionController):
         super().move_xy_absolute(x,y,wait)
 
 
-    @cli_method
     def move_to_plate_starting_well_pos(self, deck_plate_index: int):
         """Move to predefined starting location for deck plate."""
         if plate_index < 0 or plate_index >= self.__class__.DECK_PLATE_COUNT:
@@ -88,7 +91,6 @@ class Labmate(JubileeMotionController):
         pass
 
 
-    @cli_method
     def move_to_plate_ending_well_pos(self, plate_index: int):
         """Move to predefined ending location for deck plate."""
         if plate_index < 0 or plate_index >= self.__class__.DECK_PLATE_COUNT:
@@ -130,27 +132,39 @@ class Labmate(JubileeMotionController):
 
 
     @cli_method
-    def setup_plate(self, deck_index: int):
+    def setup_plate(self, deck_index: int = None, well_count: int = None):
         """Configure the plate type and location."""
         try:
-            self.completions = ["6", "48", "96"]
-            well_count = self.input(f"Enter the number of wells: ")
-            self.deck_plate_config[deck_index]["well_count"] = int(well_count)
+            if deck_index is None:
+                self.completions = list(map(str,range(self.__class__.DECK_PLATE_COUNT)))
+                deck_index = int(self.input(f"Enter deck index: "))
 
-            # TODO: lookup well by well number count instead of asking for this.
-            self.completions = ["2", "6", "8"]
-            row_count = self.input(f"Enter the number of rows: ")
-            self.deck_plate_config[deck_index]["row_count"] = int(row_count)
-            self.completions = ["3", "8", "12"]
-            col_count = self.input(f"Enter the number of columns: ")
-            self.deck_plate_config[deck_index]["col_count"] = int(col_count)
+            # TODO: ask for the plate type with an enum.
+            if well_count is None:
+                self.completions = ["6", "48", "96"]
+                well_count = int(self.input(f"Enter number of wells: "))
+            self.deck_plate_config[deck_index]["well_count"] = well_count
 
-            # Move to the plate locations.
-            # First Well ctrl prompt.
-            # Get machine's current location if not cancelled.
+            row_count, col_count = self.__class__.WELL_COUNT_TO_ROWS[well_count]
+            last_row_letter = chr(row_count + 65 - 1)
 
-            # Last Well ctrl prompt.
-            # Get machine's current location if not cancelled.
+            self.input("Commencing manual zeroing. Press any key when ready.")
+            self.keyboard_control(prompt=
+                f"Center the tool head over the well position A1")
+            self.deck_plate_config[deck_index]["starting_well_centroid"] = self.get_position()[0:2]
+
+            self.input("Commencing manual zeroing. Press any key when ready.")
+            self.keyboard_control(prompt=
+                f"Center the tool head over the well position A{row_count}")
+            self.deck_plate_config[deck_index]["first_row_last_col_well_centroid"] = self.get_position()[0:2]
+
+            self.input("Commencing manual zeroing. Press any key when ready.")
+            self.keyboard_control(prompt=
+                f"Center the tool head over the well position {last_row_letter}{row_count}")
+            self.deck_plate_config[deck_index]["ending_well_centroid"] = self.get_position()[0:2]
+            import pprint
+            pprint.pprint(self.deck_plate_config[deck_index])
+
         finally:
             self.completions = None
 

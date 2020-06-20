@@ -3,9 +3,9 @@
 import socket
 import json
 import time
-#from sys import stdin # alternative to input() for keyboard control
+import curses
 import readline
-import getch
+#import getch
 from threading import Thread, Lock
 from introspect_interface import MASH, cli_method
 
@@ -14,7 +14,7 @@ class JubileeMotionController(MASH):
     # Interval for updating the machine model.
     POLL_INTERVAL_S = 0.1
     SOCKET_ADDRESS = '/var/run/dsf/dcs.sock'
-    MM_BUFFER_SIZE = 32768
+    MM_BUFFER_SIZE = 65536
 
 
     def __init__(self, debug=False, simulated=False):
@@ -72,7 +72,8 @@ class JubileeMotionController(MASH):
         # Request to enter patch-based subscription mode.
         j=json.dumps({"mode":"subscribe",
                       "version": 8,
-                      "subscriptionMode": "Patch"}).encode()
+                      #"subscriptionMode": "Patch"}).encode()
+                      "subscriptionMode": "Full"}).encode()
         subscribe_socket.sendall(j)
         # Do the first update.
         r = subscribe_socket.recv(self.__class__.MM_BUFFER_SIZE).decode()
@@ -93,6 +94,7 @@ class JubileeMotionController(MASH):
                 print(f"received: {r}")
             with Lock(): # Lock access to the machine model.
                 try:
+                    # FIXME: we need a recursive update here.
                     self.machine_model.update(json.loads(r))
                 except json.decoder.JSONDecodeError:
                     print("Buffer too small!")
@@ -114,7 +116,7 @@ class JubileeMotionController(MASH):
             print(f"sending: {gcode_packet}")
         if self.simulated:
             return
-        j=json.dumps(gcode_packet.encode())
+        j=json.dumps(gcode_packet).encode()
         self.command_socket.send(j)
         r=self.command_socket.recv(self.__class__.MM_BUFFER_SIZE).decode()
         if ('Error' in r):
@@ -178,19 +180,20 @@ class JubileeMotionController(MASH):
         self._move_xyz(x, y, z, wait)
 
 
-    @cli_method
-    def get_pos(self):
-      result = self.machine_model['move']['axes']
-      x = result[0].get('machinePosition', None)
-      y = result[1].get('machinePosition', None)
-      z = result[2].get('machinePosition', None)
+    def get_position(self):
+        """Returns the machine position in mm."""
+        # FIXME:undo assumption that list is ordered X, Y, Z, etc.
+        axis_info = self.machine_model['move']['axes']
+        x = axis_info[0].get('machinePosition', None)
+        y = axis_info[1].get('machinePosition', None)
+        z = axis_info[2].get('machinePosition', None)
 
-      x2 = result[0].get('userPosition', None)
-      y2 = result[1].get('userPosition', None)
-      z2 = result[2].get('userPosition', None)
-      #FIXME: actually return this; don't just print it.
-      print(f"Current Machine position: X:{x} Y:{y} Z:{z}")
-      print(f"Next Machine position: X:{x2} Y:{y2} Z:{z2}")
+        #x2 = result[0].get('userPosition', None)
+        #y2 = result[1].get('userPosition', None)
+        #z2 = result[2].get('userPosition', None)
+        #print(f"Current Machine position: X:{x} Y:{y} Z:{z}")
+        #print(f"Next Machine position: X:{x2} Y:{y2} Z:{z2}")
+        return x, y, z
 
 
     @cli_method
@@ -202,36 +205,36 @@ class JubileeMotionController(MASH):
             self.gcode(f"G92 {axis.upper()}0")
 
 
-    #@cli_method
+    @cli_method
     def print_machine_model(self):
         import pprint
         pprint.pprint(self.machine_model)
 
 
     @cli_method
-    def keyboard_control(self):
+    def keyboard_control(self, prompt: str = "=== Manual Control ==="):
         """Use keyboard input to move the machine in steps.
-        W = forwards (-Y)
-        A = left (+X)
-        S = right (-X)
-        D = backwards (+Y)
-        ↑ = tool tip up (+Z)
-        ↓ = tool tip down (-Z)
-        ← = decrease movement step size
-        ↓ = increase movement step size
+        ↑ = forwards (-Y)
+        ← = left (+X)
+        → = right (-X)
+        ↓ = backwards (+Y)
+        w = tool tip up (+Z)
+        s = tool tip down (-Z)
+        [ = decrease movement step size
+        ] = increase movement step size
         """
-        import curses
         step_size = 1
         stdscr = curses.initscr()
         curses.cbreak()
         curses.noecho()
         stdscr.keypad(True)
 
-        stdscr.addstr(0,0,"Manual Control. Press 'q' to quit.")
-        stdscr.addstr(1,0,"Commands:")
-        stdscr.addstr(2,0,"  Arrow keys for XY; '[' and ']' to increase movement step size")
-        stdscr.addstr(3,0,"  '[' and ']' to decrease/increase movement step size")
-        stdscr.addstr(4,0,"  's' and 'w' to lower/raise z")
+        stdscr.addstr(0,0, prompt)
+        stdscr.addstr(1,0,"Press 'q' to quit.")
+        stdscr.addstr(2,0,"Commands:")
+        stdscr.addstr(3,0,"  Arrow keys for XY; '[' and ']' to increase movement step size")
+        stdscr.addstr(4,0,"  '[' and ']' to decrease/increase movement step size")
+        stdscr.addstr(5,0,"  's' and 'w' to lower/raise z")
         stdscr.refresh()
 
         key = ''
@@ -272,6 +275,6 @@ class JubileeMotionController(MASH):
 
 
 if __name__ == "__main__":
-    with JubileeMotionController(simulated=True) as jubilee:
+    with JubileeMotionController(simulated=False) as jubilee:
         #jubilee.home_xy()
         jubilee.cli()
