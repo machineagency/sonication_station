@@ -3,6 +3,7 @@
 from inspect import getmembers, ismethod, signature
 from enum import Enum
 import readline
+from math import floor
 
 
 # TODO: replace input entirely with something that handles "ESC" characters and returns None.
@@ -18,6 +19,21 @@ def cli_method(func):
 class UserInputError(Exception):
     """Base exception for user inputting something incorrectly."""
     pass
+
+def print_list_as_cols(my_list, columnwidth=50):
+    max_string_len = max(map(len, my_list)) + 1
+    column_count = floor(columnwidth/max_string_len)
+    list_iter = iter(my_list)
+    list_item = next(list_iter)
+    try:
+        while True:
+            for i in range(column_count):
+                print(f"{list_item :<{max_string_len}}", end=" ")
+                list_item = next(list_iter)
+            print()
+    except StopIteration:
+        pass # Done printing.
+    print()
 
 
 class MASH(object):
@@ -129,12 +145,14 @@ class MASH(object):
             matches = sorted(matches, key=lambda x: self.completions.index(x))
             for match in matches:
                 print(match, end=" ")
+            print_list_as_cols(matches)
         # Render Function Name:
         elif len(cmd_with_args) == 0 or \
             (len(cmd_with_args) == 1 and line[-1] is not self.__class__.DELIM):
             # Render function name matches.
-            for match in matches:
-                print(match, end=" ")
+            #for match in matches:
+            #    print(match, end=" ")
+            print_list_as_cols(matches)
         # Render Function Args:
         else:
             param_order = [f"{x}=" for x in self.cli_method_definitions[self.func_name]['param_order']]
