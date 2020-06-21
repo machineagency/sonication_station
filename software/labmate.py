@@ -7,6 +7,7 @@ import copy
 from threading import Thread, Lock
 from introspect_interface import MASH, cli_method
 from jubilee_controller import JubileeMotionController
+#from sonicator import sonicator
 
 class Labmate(JubileeMotionController):
     """Driver for sending motion cmds and polling the machine state."""
@@ -24,6 +25,8 @@ class Labmate(JubileeMotionController):
          "well_count": None,
          "row_count": None,
          "col_count": None}
+
+    CLEANING_TIME_S = 3
 
     splash = \
 """
@@ -49,6 +52,7 @@ class Labmate(JubileeMotionController):
                             for i in range(self.__class__.DECK_PLATE_COUNT)]
         if deck_config_filepath:
             self.load_deck_config(filepath)
+        self.sonicator = None
 
 
     # Do not write a getter for this.
@@ -68,12 +72,13 @@ class Labmate(JubileeMotionController):
         raise NotImplementedError
 
 
+    @cli_method
     def move_xy_absolute(self, x: float = None, y: float = None,
                          wait: bool = True):
         """Move in XY, but include the safe Z retract first if defined."""
-        if self.safe_z is not None:
+        if self.safe_z is None:
             super().move_xyz_absolute(z=self.safe_z)
-        super().move_xy_absolute(x,y,wait)
+        super().move_xyz_absolute(x,y,wait=wait)
 
 
     def move_to_plate_starting_well_pos(self, deck_plate_index: int):
@@ -167,6 +172,26 @@ class Labmate(JubileeMotionController):
 
         finally:
             self.completions = None
+
+    @cli_method
+    def sonicate_well(self, deck_index: int, well_index: int, plunge_depth: int,
+                      seconds: float):
+        """Sonicate one plate well at a specified depth for a given time."""
+        x,y = self.get_well_position(deck_index, well_index)
+        self.move_xy_absolute(x,y)
+        self.move_xyz_absolute(z) # TODO: maybe slow this down?
+        self.sonicator.sonicate(seconds) # TODO: maybe slow this down?
+        self.move_xy_absolute() # safe height.
+
+
+    @cli_method
+    def clean_sonicator(self, bath_time: int = CLEANING_TIME_S):
+        """Run the sonicator through the baths."""
+        for x,y in self.cleaning_vile_locations:
+            self.move_xy_absolute(x, y)
+            self.move_xyz_absolute(z) # TODO: maybe slow this down?
+            self.sonicator.sonicate(seconds) # TODO: maybe slow this down?
+            self.move_xy_absolute() # safe height.
 
 
     def __enter__(self):

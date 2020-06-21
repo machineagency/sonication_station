@@ -75,14 +75,13 @@ class MASH(object):
             param_order = []
             sig = signature(method)
 
-            # FIXME: how does this code hande functions wrapped in decorators??
+            # FIXME: how does this code handle functions wrapped in decorators??
             # Collapse to the function any wrapped functions.
             # This works only for function decorator wrappers using
             # functools.wraps to do the wrapping
             #while hasattr(method, "__wrapped__"):
             #    method = method.__wrapped__
 
-            # TODO: this should probably be an ordered dict.
             for parameter_name in sig.parameters:
                 #if parameter_name == "self":
                 #    continue
@@ -285,13 +284,27 @@ class MASH(object):
                     except (ValueError, AttributeError):
                         # Enforce that positional args come before kwargs.
                         if no_more_args:
-                            raise UserInputError("Error: all positional \
-                                                 arguments must be specified before any keyword arguments.")
+                            raise UserInputError(
+                                "Error: all positional arguments must be specified before any keyword arguments.")
                         arg_name = self.cli_method_definitions[fn_name]['param_order'][arg_index]
                         val_str = arg_block
                     val = self.cli_method_definitions[fn_name]['parameters'][arg_name]['type'](val_str)
                     kwargs[arg_name] = val
-                # TODO: apply fn defaults if any exist.
+
+                # Populate missing params with their defaults.
+                # Raise error if are required param is missing.
+                kwarg_settings = self.cli_method_definitions[fn_name]['parameters']
+                missing_kwargs = []
+                for key, val in kwarg_settings.items():
+                    if key not in kwargs:
+                        if 'default' in kwarg_settings[key]:
+                            kwargs[key] = kwarg_settings[key]['default']
+                        else:
+                            missing_kwargs.append(key)
+                if missing_kwargs:
+                    raise UserInputError(
+                        f"Error: the following required parameters are missing: {missing_kwargs}")
+
                 # Invoke the fn.
                 self.cli_methods[fn_name](**kwargs)
             except (EOFError, UserInputError) as e:
