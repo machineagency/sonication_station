@@ -4,12 +4,13 @@ from inspect import getmembers, ismethod, signature
 from enum import Enum
 import readline
 from math import floor
+import os
 
 
 # TODO: replace input entirely with something that handles "ESC" characters and returns None.
-
 # TODO: enable tab completion for string input with limited scope of opions. (Custom enums?)
 # TODO: enable tab completion for help
+# TODO: check for how this fn handles functions wrapped with other decorators.
 
 def cli_method(func):
     """Decorator to register method as available to the CLI."""
@@ -20,9 +21,12 @@ class UserInputError(Exception):
     """Base exception for user inputting something incorrectly."""
     pass
 
-def print_list_as_cols(my_list, columnwidth=50):
-    max_string_len = max(map(len, my_list)) + 1
-    column_count = floor(columnwidth/max_string_len)
+def print_list_as_cols(my_list, column_width=None):
+    """Prints a list as a set of columns, maximizing screen space."""
+    if column_width is None:
+        _, column_width = map(int, os.popen('stty size', 'r').read().split())
+    max_string_len = max(map(len, my_list)) + 1 # account for space.
+    column_count = floor(column_width/max_string_len)
     list_iter = iter(my_list)
     list_item = next(list_iter)
     try:
@@ -33,7 +37,6 @@ def print_list_as_cols(my_list, columnwidth=50):
             print()
     except StopIteration:
         pass # Done printing.
-    print()
 
 
 class MASH(object):
@@ -135,15 +138,16 @@ class MASH(object):
     def _match_display_hook(self, substitution, matches, longest_match_length):
         """Display custom response when invoking tab completion."""
         # Warning: exceptions raised in this fn are not catchable.
-        line = readline.get_line_buffer() # The whole line.
+        # This issue is connected to the readline implementation.
+        line = readline.get_line_buffer() # entire line of entered text so far.
         cmd_with_args = line.split()
         print()
         # Render explicitly specified completions in the original order:
         if self.completions:
-            # matches arrive alphebatized. Specify order according to original.
+            # Matches arrive alphebatized. Specify order according to original.
             matches = sorted(matches, key=lambda x: self.completions.index(x))
-            for match in matches:
-                print(match, end=" ")
+            #for match in matches:
+            #    print(match, end=" ")
             print_list_as_cols(matches)
         # Render Function Name:
         elif len(cmd_with_args) == 0 or \
@@ -286,7 +290,8 @@ class MASH(object):
 
                 # Check if fn even exists.
                 if fn_name not in self.cli_method_definitions:
-                    raise UserInputError(f"Error: {fn_name} is not a valid command.")
+                    raise UserInputError(f"Error: {fn_name} is not a valid "
+                                          "command.")
 
                 # Ensure required arg count is met.
                 if len(arg_blocks) > len(self.cli_method_definitions[fn_name]['param_order']):
@@ -303,7 +308,8 @@ class MASH(object):
                         # Enforce that positional args come before kwargs.
                         if no_more_args:
                             raise UserInputError(
-                                "Error: all positional arguments must be specified before any keyword arguments.")
+                                "Error: all positional arguments must be "
+                                 "specified before any keyword arguments.")
                         arg_name = self.cli_method_definitions[fn_name]['param_order'][arg_index]
                         val_str = arg_block
                     val = self.cli_method_definitions[fn_name]['parameters'][arg_name]['type'](val_str)
@@ -321,7 +327,8 @@ class MASH(object):
                             missing_kwargs.append(key)
                 if missing_kwargs:
                     raise UserInputError(
-                        f"Error: the following required parameters are missing: {missing_kwargs}")
+                        f"Error: the following required parameters are "
+                         "missing: {missing_kwargs}")
 
                 # Invoke the fn.
                 self.cli_methods[fn_name](**kwargs)

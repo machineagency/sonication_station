@@ -4,6 +4,7 @@ import socket
 import json
 import time
 import copy
+from math import sqrt, acos, asin, cos, sin
 from threading import Thread, Lock
 from introspect_interface import MASH, cli_method
 from jubilee_controller import JubileeMotionController
@@ -174,9 +175,10 @@ class Labmate(JubileeMotionController):
             self.completions = None
 
     @cli_method
-    def sonicate_well(self, deck_index: int, well_index: int, plunge_depth: int,
-                      seconds: float):
+    def sonicate_well(self, deck_index: int, row_letter: str, column_index: int,
+                      plunge_depth: int, seconds: float):
         """Sonicate one plate well at a specified depth for a given time."""
+        row_index = ord(row_letter.upper()) - 65 # map row letters to numbers.
         x,y = self.get_well_position(deck_index, well_index)
         self.move_xy_absolute(x,y)
         self.move_xyz_absolute(z) # TODO: maybe slow this down?
@@ -192,6 +194,31 @@ class Labmate(JubileeMotionController):
             self.move_xyz_absolute(z) # TODO: maybe slow this down?
             self.sonicator.sonicate(seconds) # TODO: maybe slow this down?
             self.move_xy_absolute() # safe height.
+
+    def _get_well_position(self, deck_index: int, row_index: int, col_index: int):
+        """Get the machine coordinates for the specified well plate index."""
+        a = self.deck_plate_config[deck_index]["starting_well_centroid"]
+        b = self.deck_plate_config[deck_index]["first_row_last_col_well_centroid"]
+        c = self.deck_plate_config[deck_index]["ending_well_centroid"]
+
+        plate_width = sqrt((b[0] - a[0])**2 - (b[1] - a[1])**2)
+        plate_height = sqrt((c[0] - b[0])**2 - (c[1] - b[1])**2)
+
+        # Note that we don't assume X and Y well spacing to be equal.
+        x_spacing = plate_width/self.deck_plate_config[deck_index]["col_count"]
+        y_spacing = plate_width/self.deck_plate_config[deck_index]["row_count"]
+
+        # We have two redundant angle measurements. Average them.
+        theta1 = asin((c[1] - b[1])/plate_height)
+        theta2 = acos((b[0] - a[0])/plate_width)
+        theta = (theta1 + theta2)/2.0
+
+        # Start with the nominal location; then rotate it with rotation matrix.
+        x_nominal = a[0] + col_index * x_spacing
+        y_nominal = a[1] + row_index * y_spacing
+        x_rotated = x_nominal * cos(theta) - y_nominal * cos(theta)
+        y_rotated = x_nominal * sin(theta) + y_nominal * cos(theta)
+        return x_rotated, y_rotated
 
 
     def __enter__(self):
