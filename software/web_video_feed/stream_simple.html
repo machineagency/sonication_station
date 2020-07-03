@@ -1,0 +1,27 @@
+<html>
+  <head>
+    <title>MJPG-Streamer - Stream Example</title>
+<style>
+.container { position:relative; }
+.container video {
+    position:relative;
+    z-index:0;
+}
+
+.overlay {
+    position:absolute;
+    top:0;
+    left:0;
+    z-index:1;
+}
+</style>
+  </head>
+  <body>
+    <div class="container">
+        <img src="/?action=stream"/>
+        <div class="overlay">
+            <img src="./overlay.png"/>
+        </div>
+</div>
+  </body>
+</html>

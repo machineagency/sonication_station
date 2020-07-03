@@ -21,18 +21,20 @@ class UserInputError(Exception):
     """Base exception for user inputting something incorrectly."""
     pass
 
-def print_list_as_cols(my_list, column_width=None):
+
+def print_columnized_list(my_list, column_width=None):
     """Prints a list as a set of columns, maximizing screen space."""
     if column_width is None:
         _, column_width = map(int, os.popen('stty size', 'r').read().split())
-    max_string_len = max(map(len, my_list)) + 1 # account for space.
+    max_string_len = max(map(len, my_list)) + 1 # add 1 for minimum whitespace.
     column_count = floor(column_width/max_string_len)
     list_iter = iter(my_list)
     list_item = next(list_iter)
     try:
         while True:
             for i in range(column_count):
-                print(f"{list_item :<{max_string_len}}", end=" ")
+                # Print item; fill the remaining column block with whitespace.
+                print(f"{list_item:<{max_string_len}}", end="")
                 list_item = next(list_iter)
             print()
     except StopIteration:
@@ -148,14 +150,14 @@ class MASH(object):
             matches = sorted(matches, key=lambda x: self.completions.index(x))
             #for match in matches:
             #    print(match, end=" ")
-            print_list_as_cols(matches)
+            print_columnized_list(matches)
         # Render Function Name:
         elif len(cmd_with_args) == 0 or \
             (len(cmd_with_args) == 1 and line[-1] is not self.__class__.DELIM):
             # Render function name matches.
             #for match in matches:
             #    print(match, end=" ")
-            print_list_as_cols(matches)
+            print_columnized_list(matches)
         # Render Function Args:
         else:
             param_order = [f"{x}=" for x in self.cli_method_definitions[self.func_name]['param_order']]
