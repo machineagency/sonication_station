@@ -63,8 +63,8 @@ class MASH(object):
         """collect functions."""
         self.cli_methods = self._get_cli_methods()
         self.cli_method_definitions = self._get_cli_method_definitions()
-        import pprint
-        pprint.pprint(self.cli_method_definitions)
+        #import pprint
+        #pprint.pprint(self.cli_method_definitions)
 
         # In-function completions for calling input() within a fn.
         # Note that this variable must be cleared when finished with it.

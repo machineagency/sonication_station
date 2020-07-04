@@ -4,7 +4,7 @@ import socket
 import json
 import time
 import copy
-import subprocess
+import subprocess, signal, os # for launching/killing video feed
 from math import sqrt, acos, asin, cos, sin
 from threading import Thread, Lock
 from introspect_interface import MASH, cli_method
@@ -197,15 +197,20 @@ class Labmate(JubileeMotionController):
             self.sonicator.sonicate(seconds) # TODO: maybe slow this down?
             self.move_xy_absolute() # safe height.
 
+    @cli_method
     def enable_live_video(self):
         """Enables the video feed."""
         self.cam_feed_process = \
-            subprocess.Popen("./launch_camera_alignment_feed.sh", shell=True)
+            subprocess.Popen("./launch_camera_alignment_feed.sh", shell=True,
+                             preexec_fn=os.setsid)
 
+    @cli_method
     def disable_live_video(self):
         """Disables the video feed."""
         if self.cam_feed_process:
-            self.cam_feed_process.kill()
+            print("killing camera feed.")
+            os.killpg(os.getpgid(self.cam_feed_process.pid), signal.SIGTERM)
+            #self.cam_feed_process.kill() This doesn't work.
             self.cam_feed_process = None
 
     def _get_well_position(self, deck_index: int, row_index: int, col_index: int):
