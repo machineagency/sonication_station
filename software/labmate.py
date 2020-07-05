@@ -30,6 +30,9 @@ class Labmate(JubileeMotionController):
 
     CLEANING_TIME_S = 3
 
+    CAMERA_TOOL_INDEX = 0
+    SONICATOR_TOOL_INDEX = 1
+
     splash = \
 """
        __      __    _ __                     
@@ -156,6 +159,8 @@ class Labmate(JubileeMotionController):
             row_count, col_count = self.__class__.WELL_COUNT_TO_ROWS[well_count]
             last_row_letter = chr(row_count + 65 - 1)
 
+            self.enable_live_video()
+            self.pickup_tool(self.__class__.CAMERA_TOOL_INDEX)
             self.input("Commencing manual zeroing. Press any key when ready.")
             self.keyboard_control(prompt=
                 f"Center the tool head over the well position A1")
@@ -175,6 +180,8 @@ class Labmate(JubileeMotionController):
 
         finally:
             self.completions = None
+            self.disable_live_video()
+            self.park_tool()
 
     @cli_method
     def sonicate_well(self, deck_index: int, row_letter: str, column_index: int,
@@ -248,6 +255,6 @@ class Labmate(JubileeMotionController):
 
 
 if __name__ == "__main__":
-    with Labmate(simulated=True) as jubilee:
+    with Labmate(simulated=False, debug=True) as jubilee:
         #jubilee.home_xy()
         jubilee.cli()

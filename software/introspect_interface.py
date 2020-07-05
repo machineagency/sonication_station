@@ -11,6 +11,7 @@ import os
 # TODO: enable tab completion for string input with limited scope of opions. (Custom enums?)
 # TODO: enable tab completion for help
 # TODO: check for how this fn handles functions wrapped with other decorators.
+# TODO: test negative number int input
 
 def cli_method(func):
     """Decorator to register method as available to the CLI."""
@@ -330,7 +331,7 @@ class MASH(object):
                 if missing_kwargs:
                     raise UserInputError(
                         f"Error: the following required parameters are "
-                         "missing: {missing_kwargs}")
+                        f"missing: {missing_kwargs}")
 
                 # Invoke the fn.
                 self.cli_methods[fn_name](**kwargs)
