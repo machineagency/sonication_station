@@ -3,6 +3,7 @@
 ; Note: tool offsets are applied at this point!
 ; Note that commands preempted with G53 will NOT apply the tool offset.
 
+G90                          ; Ensure the machine is in absolute mode before issuing movements.
 G53 G1 Y335 F6000            ; Move to the pickup position with tool-0.
 M98 P"/macros/tool_lock.g"   ; Lock the tool
 G1 R2 Z0                     ; Restore prior position now accounting for new tool offset.

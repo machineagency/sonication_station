@@ -187,17 +187,27 @@ class JubileeMotionController(MASH):
         z_movement = f"Z{z} " if z is not None else ""
         self.gcode(f"G0 {x_movement}{y_movement}{z_movement}F10000", wait=wait)
 
+    def _set_absolute_moves(self):
+        if self.absolute_moves:
+            return
+        self.gcode("G90")
+        self.absolute_moves = True
+
+
+    def _set_relative_moves(self):
+        if not self.absolute_moves:
+            return
+        self.gcode("G91")
+        self.absolute_moves = False
+
 
     def move_xyz_relative(self, x: float = None, y: float = None,
                           z: float = None, wait: bool = True):
         """Do a relative move in XYZ."""
-        if self.absolute_moves:
-            self.gcode("G91")
-            self.absolute_moves = False
+        self.set_relative_moves()
         self._move_xyz(x=x, y=y, z=z, wait=wait)
 
 
-    @cli_method
     def move_xy_absolute(self, x: float = None, y: float = None,
                          wait: bool = True):
         """Do an absolute move in XY."""
@@ -208,9 +218,7 @@ class JubileeMotionController(MASH):
                           z: float = None, wait: bool = True):
         """Do an absolute move in XYZ."""
         # TODO: use push and pop sematics instead.
-        if not self.absolute_moves:
-            self.gcode("G90")
-            self.absolute_moves = True
+        self._set_absolute_moves()
         self._move_xyz(x, y, z, wait)
 
 
@@ -302,38 +310,41 @@ class JubileeMotionController(MASH):
         stdscr.addstr(3,0,"  Arrow keys for XY; '[' and ']' to increase movement step size")
         stdscr.addstr(4,0,"  '[' and ']' to decrease/increase movement step size")
         stdscr.addstr(5,0,"  's' and 'w' to lower/raise z")
+        stdscr.addstr(6,0,f"Step Size: {step_size:<8}")
         stdscr.refresh()
 
         key = ''
-        while key != ord('q'):
-            key = stdscr.getch()
-            stdscr.refresh()
-            if key == curses.KEY_UP:
-                self.move_xyz_relative(y=-step_size)
-            elif key == curses.KEY_DOWN:
-                self.move_xyz_relative(y=step_size)
-            elif key == curses.KEY_LEFT:
-                self.move_xyz_relative(x=step_size)
-            elif key == curses.KEY_RIGHT:
-                self.move_xyz_relative(x=-step_size)
-            elif key == ord('w'):
-                self.move_xyz_relative(z=step_size)
-            elif key == ord('s'):
-                self.move_xyz_relative(z=-step_size)
-            elif key == ord('['):
-                step_size = step_size/2.0
-                if step_size < min_step_size:
-                    step_size = min_step_size
-                stdscr.addstr(6,0,f"Step Size: {step_size:<8}")
-            elif key == ord(']'):
-                step_size = step_size*2.0
-                if step_size > max_step_size:
-                    step_size = max_step_size
-                stdscr.addstr(6,0,f"Step Size: {step_size:<8}")
-        curses.nocbreak()
-        stdscr.keypad(False)
-        curses.echo()
-        curses.endwin()
+        try:
+            while key != ord('q'):
+                key = stdscr.getch()
+                stdscr.refresh()
+                if key == curses.KEY_UP:
+                    self.move_xyz_relative(y=-step_size)
+                elif key == curses.KEY_DOWN:
+                    self.move_xyz_relative(y=step_size)
+                elif key == curses.KEY_LEFT:
+                    self.move_xyz_relative(x=step_size)
+                elif key == curses.KEY_RIGHT:
+                    self.move_xyz_relative(x=-step_size)
+                elif key == ord('w'):
+                    self.move_xyz_relative(z=step_size)
+                elif key == ord('s'):
+                    self.move_xyz_relative(z=-step_size)
+                elif key == ord('['):
+                    step_size = step_size/2.0
+                    if step_size < min_step_size:
+                        step_size = min_step_size
+                    stdscr.addstr(6,0,f"Step Size: {step_size:<8}")
+                elif key == ord(']'):
+                    step_size = step_size*2.0
+                    if step_size > max_step_size:
+                        step_size = max_step_size
+                    stdscr.addstr(6,0,f"Step Size: {step_size:<8}")
+        finally:
+            curses.nocbreak()
+            stdscr.keypad(False)
+            curses.echo()
+            curses.endwin()
 
 
     def __enter__(self):
