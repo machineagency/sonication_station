@@ -195,6 +195,7 @@ class Labmate(JubileeMotionController):
                                  "must first be defined.")
         row_index = ord(row_letter.upper()) - 65 # map row letters to numbers.
         x,y = self._get_well_position(deck_index, row_index, column_index)
+        print(f"Sonicating at: ({x}, {y})")
         self.move_xy_absolute(x,y) # Position over the well at safe z height.
         _, _, z = self.get_position()
         # Sanity check that we're not plunging too deep. Plunge depth is relative.
@@ -232,8 +233,18 @@ class Labmate(JubileeMotionController):
             #self.cam_feed_process.kill() This doesn't work.
             self.cam_feed_process = None
 
+    @cli_method
     def _get_well_position(self, deck_index: int, row_index: int, col_index: int):
         """Get the machine coordinates for the specified well plate index."""
+        # Note: we lookup well spacing from a built-in dict for now.
+        well_count = self.deck_plate_config[deck_index]["well_count"]
+        row_count, col_count = self.__class__.WELL_COUNT_TO_ROWS[well_count]
+
+        if row_index > (row_count - 1) or col_index > (col_count - 1):
+            raise LookupError(f"Requested well index ({row_index}, {col_index}) "
+                              f"is out of bounds for a plate with {row_count} rows "
+                              f"and {col_count} columns.")
+
         a = self.deck_plate_config[deck_index]["starting_well_centroid"]
         b = self.deck_plate_config[deck_index]["first_row_last_col_well_centroid"]
         c = self.deck_plate_config[deck_index]["ending_well_centroid"]
@@ -241,21 +252,22 @@ class Labmate(JubileeMotionController):
         plate_width = sqrt((b[0] - a[0])**2 + (b[1] - a[1])**2)
         plate_height = sqrt((c[0] - b[0])**2 + (c[1] - b[1])**2)
 
-        # Note that we don't assume X and Y well spacing to be equal.
-        x_spacing = plate_width/self.deck_plate_config[deck_index]["col_count"]
-        y_spacing = plate_width/self.deck_plate_config[deck_index]["row_count"]
+        # Note: we assume evenly spaced wells but possibly distinct x and y spacing
+        x_spacing = plate_width/(col_count - 1)
+        y_spacing = plate_height/(row_count - 1)
 
         # We have two redundant angle measurements. Average them.
-        theta1 = asin((c[1] - b[1])/plate_height)
+        theta1 = acos((c[1] - b[1])/plate_height)
         theta2 = acos((b[0] - a[0])/plate_width)
         theta = (theta1 + theta2)/2.0
 
-        # Start with the nominal location; then rotate it with rotation matrix.
-        x_nominal = a[0] + col_index * x_spacing
-        y_nominal = a[1] + row_index * y_spacing
-        x_rotated = x_nominal * cos(theta) - y_nominal * cos(theta)
-        y_rotated = x_nominal * sin(theta) + y_nominal * cos(theta)
-        return x_rotated, y_rotated
+        # Start with the nominal spot; then translate and rotate to final spot.
+        x_nominal = col_index * x_spacing
+        y_nominal = row_index * y_spacing
+        x_transformed = x_nominal * cos(theta) - y_nominal * sin(theta) + a[0]
+        y_transformed = x_nominal * sin(theta) + y_nominal * cos(theta) + a[1]
+
+        return x_transformed, y_transformed
 
 
     def __enter__(self):

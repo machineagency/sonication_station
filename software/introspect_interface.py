@@ -5,6 +5,7 @@ from enum import Enum
 import readline
 from math import floor
 import os
+import pprint
 
 
 # TODO: replace input entirely with something that handles "ESC" characters and returns None.
@@ -334,10 +335,14 @@ class MASH(object):
                         f"missing: {missing_kwargs}")
 
                 # Invoke the fn.
-                self.cli_methods[fn_name](**kwargs)
+                return_val = self.cli_methods[fn_name](**kwargs)
+                pprint.pprint(return_val)
             except (EOFError, UserInputError) as e:
                 print(e)
                 line = 'EOF'
+            except KeyboardInterrupt:
+                print()
+                return
 
 
     @cli_method
