@@ -19,6 +19,10 @@ class JubileeMotionController(MASH):
     MM_BUFFER_SIZE = 65536
     SUBSCRIBE_MODE = "Full"
 
+    MOVE_TIMEOUT_S = 10
+
+    EPSILON = 0.001
+
 
     def __init__(self, debug=False, simulated=False):
         """Start with sane defaults. Setup command and subscribe connections."""
@@ -28,6 +32,8 @@ class JubileeMotionController(MASH):
         self.machine_model = {}
         self.command_socket = None
         self.connect()
+        self.update_counter = 0 # For detecting when new data has arrived.
+        self.sleep_interval_s = 0
         self.state_update_thread = \
             Thread(target=self.update_machine_model_worker,
                     name="Machine Model Update Thread",
@@ -62,8 +68,8 @@ class JubileeMotionController(MASH):
 
     def update_machine_model_worker(self):
         """Thread worker for periodically updating the machine model."""
-        if self.simulated:
-            return
+        #if self.simulated:
+        #    return
         # Subscribe to machine model updates
         subscribe_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         subscribe_socket.connect(self.__class__.SOCKET_ADDRESS)
@@ -98,12 +104,13 @@ class JubileeMotionController(MASH):
                 try:
                     # TODO: we need a recursive update here for Patch mode.
                     self.machine_model.update(json.loads(r))
+                    self.update_counter += 1
                 except json.decoder.JSONDecodeError:
                     print("Buffer too small!")
-            #self.print_position()
             elapsed_time_s = time.perf_counter() - start_time_s
             if elapsed_time_s < self.__class__.POLL_INTERVAL_S:
-                time.sleep(self.__class__.POLL_INTERVAL_S - elapsed_time_s)
+                self.sleep_interval_s = self.__class__.POLL_INTERVAL_S - elapsed_time_s
+                time.sleep(self.sleep_interval_s)
 
 
     def disconnect(self):
@@ -112,8 +119,8 @@ class JubileeMotionController(MASH):
             self.command_socket.close()
 
 
-    def gcode(self, cmd: str = "", wait=False):
-        """Send a string of GCode"""
+    def gcode(self, cmd: str = "", wait=True):
+        """Send a string of GCode. Optional: wait for a response."""
         gcode_packet = {"code": cmd,"channel": 0,"command": "SimpleCode"}
         if self.debug or self.simulated:
             print(f"sending: {gcode_packet}")
@@ -178,13 +185,51 @@ class JubileeMotionController(MASH):
 
     def _move_xyz(self, x: float = None, y: float = None, z: float = None,
                 wait: bool = True):
-        """Move in XY. (Absolute or relative set externally.)"""
+        """Move in XYZ. Absolute/relative set externally. Optional: wait until done."""
         # TODO: find way to recover from out-of-bounds move requests.
         # TODO: check if machine is homed first. Bail early if True.
+
+        with Lock(): # Read machine model and related info as a group.
+            end_pos = list(self.get_position())
+            update_num = self.update_counter
+            sleep_interval_s = self.sleep_interval_s
+        if self.absolute_moves:
+            end_pos[0] = x if x is not None else end_pos[0]
+            end_pos[1] = y if y is not None else end_pos[1]
+            end_pos[2] = z if z is not None else end_pos[2]
+        else:
+            end_pos[0] = end_pos[0] + x if x is not None else end_pos[0]
+            end_pos[1] = end_pos[1] + y if y is not None else end_pos[1]
+            end_pos[2] = end_pos[2] + z if z is not None else end_pos[2]
+
         x_movement = f"X{x} " if x is not None else ""
         y_movement = f"Y{y} " if y is not None else ""
         z_movement = f"Z{z} " if z is not None else ""
-        self.gcode(f"G0 {x_movement}{y_movement}{z_movement}F10000", wait=wait)
+        self.gcode(f"G0 {x_movement}{y_movement}{z_movement}F10000")
+        if wait:
+            start_time_s = time.perf_counter()
+            # Poll the machine model position until we arriave at target destination.
+            # Timeout if too much time has elapsed
+            while time.perf_counter() - start_time_s < self.__class__.MOVE_TIMEOUT_S:
+                with Lock(): # Read machine model and related info as a group.
+                    curr_pos = list(self.get_position())
+                    update_num = self.update_counter
+                    sleep_interval_s = self.sleep_interval_s
+                #print(f"curr pos: {curr_pos}")
+                #print(f"end pos: {end_pos}")
+                #print()
+                # Are we there yet? Check and handle floating point error.
+                if abs(end_pos[0] - curr_pos[0]) < self.__class__.EPSILON and \
+                   abs(end_pos[1] - curr_pos[1]) < self.__class__.EPSILON and \
+                   abs(end_pos[2] - curr_pos[2]) < self.__class__.EPSILON:
+                    return
+                # New data was acquired since we last checked
+                elif update_num != self.update_counter:
+                    continue
+                else:
+                    # Wake up after update thread has updated again.
+                    time.sleep(sleep_interval_s + 0.001)
+            raise RuntimeError("Error: machine has not arrived at target desitnation.")
 
     def _set_absolute_moves(self, force: bool = False):
         if self.absolute_moves and not force:

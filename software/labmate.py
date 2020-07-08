@@ -7,7 +7,7 @@ import copy
 import subprocess, signal, os # for launching/killing video feed
 from math import sqrt, acos, asin, cos, sin
 from threading import Thread, Lock
-from introspect_interface import MASH, cli_method
+from introspect_interface import MASH, cli_method, UserInputError
 from jubilee_controller import JubileeMotionController
 #from sonicator import sonicator
 
@@ -21,12 +21,19 @@ class Labmate(JubileeMotionController):
 
     DECK_PLATE_CONFIG = \
         {"id": "",
-         "starting_well_centroid": (None, None),
-         "first_row_last_col_well_centroid": (None, None),
-         "ending_well_centroid": (None, None),
-         "well_count": None,
-         "row_count": None,
-         "col_count": None}
+         "starting_well_centroid": (150, 150),
+         "first_row_last_col_well_centroid": (100, 150),
+         "ending_well_centroid": (100, 120),
+         "well_count": 96,
+         "row_count": 8,
+         "col_count": 12}
+        #{"id": "",
+        # "starting_well_centroid": (None, None),
+        # "first_row_last_col_well_centroid": (None, None),
+        # "ending_well_centroid": (None, None),
+        # "well_count": None,
+        # "row_count": None,
+        # "col_count": None}
 
     CLEANING_TIME_S = 3
 
@@ -67,10 +74,10 @@ class Labmate(JubileeMotionController):
         If no height is specified, the machine will take the current height.
         The machine will always retract to this position before moving in XY.
         """
-        if not z: # rejects setting Z to None and 0.
+        if z is None:
         # Get current height.
             _, _, self.safe_z = self.get_position()
-        else:
+        elif z > 0:
             self.safe_z = z
 
 
@@ -79,7 +86,7 @@ class Labmate(JubileeMotionController):
                          wait: bool = True):
         """Move in XY, but include the safe Z retract first if defined."""
         if self.safe_z is not None:
-            super().move_xyz_absolute(z=self.safe_z)
+            super().move_xyz_absolute(z=self.safe_z, wait=wait)
         super().move_xyz_absolute(x,y,wait=wait)
 
 
@@ -183,11 +190,20 @@ class Labmate(JubileeMotionController):
     def sonicate_well(self, deck_index: int, row_letter: str, column_index: int,
                       plunge_depth: int, seconds: float):
         """Sonicate one plate well at a specified depth for a given time."""
+        if self.safe_z is None:
+            raise UserInputError("Error: safe Z height for XY travel moves "
+                                 "must first be defined.")
         row_index = ord(row_letter.upper()) - 65 # map row letters to numbers.
-        x,y = self.get_well_position(deck_index, well_index)
-        self.move_xy_absolute(x,y)
-        self.move_xyz_absolute(z) # TODO: maybe slow this down?
-        self.sonicator.sonicate(seconds) # TODO: maybe slow this down?
+        x,y = self._get_well_position(deck_index, row_index, column_index)
+        self.move_xy_absolute(x,y) # Position over the well at safe z height.
+        _, _, z = self.get_position()
+        # Sanity check that we're not plunging too deep. Plunge depth is relative.
+        if z - plunge_depth <= 0:
+            raise UserInputError("Error: plunge depth is too deep.")
+        self.move_xyz_absolute(z=(z - plunge_depth), wait=True)
+        #self.sonicator.sonicate(seconds) # TODO: maybe slow this down?
+        print(f"sonicating for {seconds} seconds!!")
+        time.sleep(seconds)
         self.move_xy_absolute() # safe height.
 
 
@@ -222,8 +238,8 @@ class Labmate(JubileeMotionController):
         b = self.deck_plate_config[deck_index]["first_row_last_col_well_centroid"]
         c = self.deck_plate_config[deck_index]["ending_well_centroid"]
 
-        plate_width = sqrt((b[0] - a[0])**2 - (b[1] - a[1])**2)
-        plate_height = sqrt((c[0] - b[0])**2 - (c[1] - b[1])**2)
+        plate_width = sqrt((b[0] - a[0])**2 + (b[1] - a[1])**2)
+        plate_height = sqrt((c[0] - b[0])**2 + (c[1] - b[1])**2)
 
         # Note that we don't assume X and Y well spacing to be equal.
         x_spacing = plate_width/self.deck_plate_config[deck_index]["col_count"]
