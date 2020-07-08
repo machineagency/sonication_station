@@ -233,7 +233,7 @@ class Labmate(JubileeMotionController):
             #self.cam_feed_process.kill() This doesn't work.
             self.cam_feed_process = None
 
-    @cli_method
+
     def _get_well_position(self, deck_index: int, row_index: int, col_index: int):
         """Get the machine coordinates for the specified well plate index."""
         # Note: we lookup well spacing from a built-in dict for now.

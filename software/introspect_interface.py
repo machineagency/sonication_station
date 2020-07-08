@@ -335,8 +335,14 @@ class MASH(object):
                         f"missing: {missing_kwargs}")
 
                 # Invoke the fn.
-                return_val = self.cli_methods[fn_name](**kwargs)
-                pprint.pprint(return_val)
+                return_val = None
+                try:
+                    return_val = self.cli_methods[fn_name](**kwargs)
+                except Exception as e:
+                    print(f"{fn_name} raised an excecption while being executed.")
+                    print(e)
+                if return_val is not None:
+                    pprint.pprint(return_val)
             except (EOFError, UserInputError) as e:
                 print(e)
                 line = 'EOF'

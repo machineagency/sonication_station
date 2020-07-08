@@ -13,10 +13,9 @@ from introspect_interface import MASH, cli_method
 
 class JubileeMotionController(MASH):
     """Driver for sending motion cmds and polling the machine state."""
-    # Interval for updating the machine model.
-    POLL_INTERVAL_S = 0.1
+    POLL_INTERVAL_S = 0.1 # Interval for updating the machine model.
     SOCKET_ADDRESS = '/var/run/dsf/dcs.sock'
-    MM_BUFFER_SIZE = 65536
+    MM_BUFFER_SIZE = 131072
     SUBSCRIBE_MODE = "Full"
 
     MOVE_TIMEOUT_S = 10
@@ -24,23 +23,21 @@ class JubileeMotionController(MASH):
     EPSILON = 0.001
 
 
-    def __init__(self, debug=False, simulated=False):
+    def __init__(self, debug=False, simulated=False, reset=False):
         """Start with sane defaults. Setup command and subscribe connections."""
         super().__init__()
         self.debug = debug
         self.simulated = simulated
         self.machine_model = {}
         self.command_socket = None
-        self.connect()
         self.update_counter = 0 # For detecting when new data has arrived.
         self.sleep_interval_s = 0
-        self.state_update_thread = \
-            Thread(target=self.update_machine_model_worker,
-                    name="Machine Model Update Thread",
-                    daemon=True).start() # terminate when the main thread exits
+        self.state_update_thread = None # The thread.
+        self.keep_subscribing = True # bool for keeping the thread alive.
         self.absolute_moves = True
-        #TODO: figure out how to get the whole tree of cmds from any attributes
-        #      that also inherit from MASH such that we can "cd" into them.
+        self.connect()
+        if reset:
+            self.reset() # also does a reconnect.
 
     def cli(self):
         """Drop the user into a command line interface."""
@@ -52,6 +49,7 @@ class JubileeMotionController(MASH):
         if self.simulated:
             return
         self.command_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        #self.command_socket.settimeout(5)
         self.command_socket.connect(self.__class__.SOCKET_ADDRESS)
         self.command_socket.setblocking(True)
         # Receive response packet with version info.
@@ -65,13 +63,21 @@ class JubileeMotionController(MASH):
         if self.debug:
             print(f"received: {r}")
 
+        # Launch the Update Thread.
+        self.state_update_thread = \
+            Thread(target=self.update_machine_model_worker,
+                    name="Machine Model Update Thread",
+                    daemon=True)
+        self.state_update_thread.start()
+
 
     def update_machine_model_worker(self):
         """Thread worker for periodically updating the machine model."""
-        #if self.simulated:
-        #    return
+        if self.simulated:
+            return
         # Subscribe to machine model updates
         subscribe_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        #subscribe_socket.settimeout(5)
         subscribe_socket.connect(self.__class__.SOCKET_ADDRESS)
         subscribe_socket.setblocking(True)
         # Receive response packet with version info.
@@ -91,7 +97,7 @@ class JubileeMotionController(MASH):
         with Lock(): # Lock access to the machine model.
             self.machine_model.update(json.loads(r))
         # Do scheduled updates
-        while True:
+        while self.keep_subscribing:
             # Acknowledge patch and request more; apply the patch; sleep
             # This whole loop takes time, so we need to measure it such
             # that our poll interval stays constant.
@@ -111,11 +117,14 @@ class JubileeMotionController(MASH):
             if elapsed_time_s < self.__class__.POLL_INTERVAL_S:
                 self.sleep_interval_s = self.__class__.POLL_INTERVAL_S - elapsed_time_s
                 time.sleep(self.sleep_interval_s)
+        subscribe_socket.shutdown(socket.SHUT_RDWR)
+        subscribe_socket.close()
 
 
     def disconnect(self):
         """Close the connection."""
         if not self.simulated:
+            self.command_socket.shutdown(socket.SHUT_RDWR)
             self.command_socket.close()
 
 
@@ -142,8 +151,21 @@ class JubileeMotionController(MASH):
     @cli_method
     def reset(self):
         """Issue a software reset."""
-        self.gcode("M999")
-        # TODO: implement reset recovery
+        # End the subscribe thread first.
+        self.keep_subscribing = False
+        self.state_update_thread.join()
+        self.keep_subscribing = True
+        self.gcode("M999") # Issue a board reset. Assumes we are already connected
+        self.disconnect()
+        print("Reconnecting...")
+        for i in range(10):
+            time.sleep(1)
+            try:
+                self.connect()
+                return
+            except FileNotFoundError as e:
+                pass
+        print("Reconnecting failed.")
 
 
     @cli_method
@@ -261,6 +283,7 @@ class JubileeMotionController(MASH):
         self._move_xyz(x, y, z, wait)
 
 
+    @cli_method
     def get_position(self):
         """Returns the machine control point in mm."""
         # We are assuming axes are ordered X, Y, Z, U. Where is this order defined?
@@ -268,6 +291,8 @@ class JubileeMotionController(MASH):
         current_tool = self.machine_model['state']['currentTool']
         if current_tool != -1: # "-1" is equivalent to "no tools."
             tool_offsets = self.machine_model['tools'][current_tool]['offsets'][:3]
+            print(type(tool_offsets))
+            print(f"tool offsets: {tool_offsets}")
 
         axis_info = self.machine_model['move']['axes']
         x = axis_info[0].get('machinePosition', None)
@@ -282,13 +307,6 @@ class JubileeMotionController(MASH):
             z += tool_offsets[2]
 
         return x, y, z
-
-
-    @cli_method
-    def print_position(self):
-        x, y, z = self.get_position()
-        print(f"Control Point position: X:{x} Y:{y} Z:{z}")
-        #print(f"User position: X:{x2} Y:{y2} Z:{z2}")
 
 
     @cli_method
@@ -404,6 +422,5 @@ class JubileeMotionController(MASH):
 
 
 if __name__ == "__main__":
-    with JubileeMotionController(simulated=True) as jubilee:
-        #jubilee.home_xy()
+    with JubileeMotionController(simulated=False) as jubilee:
         jubilee.cli()
