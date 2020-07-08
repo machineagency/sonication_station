@@ -67,7 +67,7 @@ class Labmate(JubileeMotionController):
         If no height is specified, the machine will take the current height.
         The machine will always retract to this position before moving in XY.
         """
-        if not z:
+        if not z: # rejects setting Z to None and 0.
         # Get current height.
             _, _, self.safe_z = self.get_position()
         else:
@@ -252,5 +252,4 @@ class Labmate(JubileeMotionController):
 
 if __name__ == "__main__":
     with Labmate(simulated=False, debug=False) as jubilee:
-        #jubilee.home_xy()
         jubilee.cli()
