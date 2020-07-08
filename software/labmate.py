@@ -61,28 +61,24 @@ class Labmate(JubileeMotionController):
         self.cam_feed_process = None
 
 
-    # Do not write a getter for this.
-    @property
-    def z(self):
-        """Return current Z height."""
-        #FIXME: actually figure out what the subscript is.
-        return self.machine_model['z']
-
     @cli_method
-    def set_safe_z(self, z: float):
-        """Set the current height to be the \"safe z\" height.
-        The machine will retract to this position before moving in XY.
+    def set_safe_z(self, z: float = None):
+        """Set the specified height to be the \"safe z\" height.
+        If no height is specified, the machine will take the current height.
+        The machine will always retract to this position before moving in XY.
         """
+        if not z:
         # Get current height.
-        # Save it.
-        raise NotImplementedError
+            _, _, self.safe_z = self.get_position()
+        else:
+            self.safe_z = z
 
 
     @cli_method
     def move_xy_absolute(self, x: float = None, y: float = None,
                          wait: bool = True):
         """Move in XY, but include the safe Z retract first if defined."""
-        if self.safe_z is None:
+        if self.safe_z is not None:
             super().move_xyz_absolute(z=self.safe_z)
         super().move_xyz_absolute(x,y,wait=wait)
 
@@ -96,7 +92,7 @@ class Labmate(JubileeMotionController):
         if x is None or y is None:
             raise UserInputError(f"Error: starting position \
                 for deck plate {plate_index} is not defined.")
-        if self.z < self.safe_z:
+        if self.safe_z is not None and self.z < self.safe_z:
             self.move_xyz_absolute(z=self.safe_z)
         self.move_xy_absolute(x, y)
         pass
@@ -111,7 +107,7 @@ class Labmate(JubileeMotionController):
         if x is None or y is None:
             raise UserInputError(f"Error: ending position \
                 for deck plate {plate_index} is not defined.")
-        if self.z < self.safe_z:
+        if self.safe_z is not None and self.z < self.safe_z:
             self.move_xyz_absolute(z=self.safe_z)
         self.move_xy_absolute(x, y)
         pass
@@ -255,6 +251,6 @@ class Labmate(JubileeMotionController):
 
 
 if __name__ == "__main__":
-    with Labmate(simulated=False, debug=True) as jubilee:
+    with Labmate(simulated=False, debug=False) as jubilee:
         #jubilee.home_xy()
         jubilee.cli()

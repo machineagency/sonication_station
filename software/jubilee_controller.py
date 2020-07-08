@@ -94,14 +94,13 @@ class JubileeMotionController(MASH):
             subscribe_socket.sendall(j)
             # TODO: Optimize. Only the first few packets need a big buffer.
             r = subscribe_socket.recv(self.__class__.MM_BUFFER_SIZE).decode()
-            #if self.debug: # This is a lot of data to spill on the screen.
-            #    print(f"received: {r}")
             with Lock(): # Lock access to the machine model.
                 try:
                     # TODO: we need a recursive update here for Patch mode.
                     self.machine_model.update(json.loads(r))
                 except json.decoder.JSONDecodeError:
                     print("Buffer too small!")
+            #self.print_position()
             elapsed_time_s = time.perf_counter() - start_time_s
             if elapsed_time_s < self.__class__.POLL_INTERVAL_S:
                 time.sleep(self.__class__.POLL_INTERVAL_S - elapsed_time_s)
@@ -142,10 +141,8 @@ class JubileeMotionController(MASH):
 
     @cli_method
     def home_all(self):
-        self.gcode("G91 G1 Z5 F800 S2")
-        self.gcode("G90")
-        self.home_xyu()
-        self.home_z()
+        self.gcode("M98 P\"homeall.g\"")
+        self._set_absolute_moves(force=True)
 
 
     @cli_method
@@ -156,6 +153,7 @@ class JubileeMotionController(MASH):
         self.gcode("G28 Y")
         self.gcode("G28 X")
         self.gcode("G28 U")
+        self._set_absolute_moves(force=True)
 
 
     @cli_method
@@ -166,6 +164,7 @@ class JubileeMotionController(MASH):
         response = input("Is the Deck free of obstacles? [y/n]")
         if response.lower() in ["y", "yes"]:
             self.gcode("G28 Z")
+        self._set_absolute_moves(force=True)
 
 
     @cli_method
@@ -187,15 +186,15 @@ class JubileeMotionController(MASH):
         z_movement = f"Z{z} " if z is not None else ""
         self.gcode(f"G0 {x_movement}{y_movement}{z_movement}F10000", wait=wait)
 
-    def _set_absolute_moves(self):
-        if self.absolute_moves:
+    def _set_absolute_moves(self, force: bool = False):
+        if self.absolute_moves and not force:
             return
         self.gcode("G90")
         self.absolute_moves = True
 
 
-    def _set_relative_moves(self):
-        if not self.absolute_moves:
+    def _set_relative_moves(self, force: bool = False):
+        if not self.absolute_moves and not force:
             return
         self.gcode("G91")
         self.absolute_moves = False
@@ -204,14 +203,9 @@ class JubileeMotionController(MASH):
     def move_xyz_relative(self, x: float = None, y: float = None,
                           z: float = None, wait: bool = True):
         """Do a relative move in XYZ."""
-        self.set_relative_moves()
-        self._move_xyz(x=x, y=y, z=z, wait=wait)
+        self._set_relative_moves()
+        self._move_xyz(x, y, z, wait=wait)
 
-
-    def move_xy_absolute(self, x: float = None, y: float = None,
-                         wait: bool = True):
-        """Do an absolute move in XY."""
-        self.move_xyz_absolute(x=x,y=y,z=None, wait=wait)
 
     @cli_method
     def move_xyz_absolute(self, x: float = None, y: float = None,
@@ -223,23 +217,33 @@ class JubileeMotionController(MASH):
 
 
     def get_position(self):
-        """Returns the machine position in mm."""
-        # FIXME:undo assumption that list is ordered X, Y, Z, etc.
+        """Returns the machine control point in mm."""
+        # We are assuming axes are ordered X, Y, Z, U. Where is this order defined?
+        tool_offsets = [0, 0, 0]
+        current_tool = self.machine_model['state']['currentTool']
+        if current_tool != -1: # "-1" is equivalent to "no tools."
+            tool_offsets = self.machine_model['tools'][current_tool]['offsets'][:3]
+
         axis_info = self.machine_model['move']['axes']
         x = axis_info[0].get('machinePosition', None)
         y = axis_info[1].get('machinePosition', None)
         z = axis_info[2].get('machinePosition', None)
 
-        #x2 = result[0].get('userPosition', None)
-        #y2 = result[1].get('userPosition', None)
-        #z2 = result[2].get('userPosition', None)
-        #print(f"Current Machine position: X:{x} Y:{y} Z:{z}")
-        #print(f"Next Machine position: X:{x2} Y:{y2} Z:{z2}")
+        if x is not None:
+            x += tool_offsets[0]
+        if y is not None:
+            y += tool_offsets[1]
+        if z is not None:
+            z += tool_offsets[2]
+
         return x, y, z
+
 
     @cli_method
     def print_position(self):
-        print(self.get_position())
+        x, y, z = self.get_position()
+        print(f"Control Point position: X:{x} Y:{y} Z:{z}")
+        #print(f"User position: X:{x2} Y:{y2} Z:{z2}")
 
 
     @cli_method
@@ -274,7 +278,7 @@ class JubileeMotionController(MASH):
             x = center[0] + radius * math.cos(i/segments * math.pi * 2)
             y = center[1] + radius * math.sin(i/segments * math.pi * 2)
             #print(f"x: {x} | y: {y}")
-            self.move_xy_absolute(x, y, wait=False)
+            self.move_xyz_absolute(x, y, wait=False)
 
 
     @cli_method
