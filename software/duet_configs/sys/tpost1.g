@@ -14,5 +14,3 @@ G1 R2 Y0                     ; Restore Y position next now accounting for new to
                              ; Restoring Y next ensures the tool is fully removed from parking post.
 G1 R2 X0                     ; Restore X position now accounting for new tool offset.
 
-M208 Z-0.2:155               ; Shrink travel region to account for large tool length. (305 - tool_height)
-

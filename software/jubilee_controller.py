@@ -215,6 +215,8 @@ class JubileeMotionController(MASH):
             end_pos = list(self.get_position())
             update_num = self.update_counter
             sleep_interval_s = self.sleep_interval_s
+        if self.debug:
+            print(f"Start pos: {end_pos}")
         if self.absolute_moves:
             end_pos[0] = x if x is not None else end_pos[0]
             end_pos[1] = y if y is not None else end_pos[1]
@@ -223,6 +225,8 @@ class JubileeMotionController(MASH):
             end_pos[0] = end_pos[0] + x if x is not None else end_pos[0]
             end_pos[1] = end_pos[1] + y if y is not None else end_pos[1]
             end_pos[2] = end_pos[2] + z if z is not None else end_pos[2]
+        if self.debug:
+            print(f"end pos: {end_pos}")
 
         x_movement = f"X{x} " if x is not None else ""
         y_movement = f"Y{y} " if y is not None else ""
@@ -237,9 +241,8 @@ class JubileeMotionController(MASH):
                     curr_pos = list(self.get_position())
                     update_num = self.update_counter
                     sleep_interval_s = self.sleep_interval_s
-                #print(f"curr pos: {curr_pos}")
-                #print(f"end pos: {end_pos}")
-                #print()
+                if self.debug:
+                    print(f"Curr pos: {curr_pos}")
                 # Are we there yet? Check and handle floating point error.
                 if abs(end_pos[0] - curr_pos[0]) < self.__class__.EPSILON and \
                    abs(end_pos[1] - curr_pos[1]) < self.__class__.EPSILON and \
@@ -291,8 +294,6 @@ class JubileeMotionController(MASH):
         current_tool = self.machine_model['state']['currentTool']
         if current_tool != -1: # "-1" is equivalent to "no tools."
             tool_offsets = self.machine_model['tools'][current_tool]['offsets'][:3]
-            print(type(tool_offsets))
-            print(f"tool offsets: {tool_offsets}")
 
         axis_info = self.machine_model['move']['axes']
         x = axis_info[0].get('machinePosition', None)
