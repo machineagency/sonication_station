@@ -13,14 +13,15 @@ from introspect_interface import MASH, cli_method
 
 class JubileeMotionController(MASH):
     """Driver for sending motion cmds and polling the machine state."""
-    POLL_INTERVAL_S = 0.1 # Interval for updating the machine model.
+    POLL_INTERVAL_S = 0.4 # Interval for updating the machine model.
     SOCKET_ADDRESS = '/var/run/dsf/dcs.sock'
     MM_BUFFER_SIZE = 131072
     SUBSCRIBE_MODE = "Full"
 
     MOVE_TIMEOUT_S = 10
+    TIMEOUT_S = 10 # a general timeout
 
-    EPSILON = 0.001
+    EPSILON = 0.01
 
 
     def __init__(self, debug=False, simulated=False, reset=False):
@@ -30,8 +31,7 @@ class JubileeMotionController(MASH):
         self.simulated = simulated
         self.machine_model = {}
         self.command_socket = None
-        self.update_counter = 0 # For detecting when new data has arrived.
-        self.sleep_interval_s = 0
+        self.wake_time = None # Next scheduled time that the update thread updates.
         self.state_update_thread = None # The thread.
         self.keep_subscribing = True # bool for keeping the thread alive.
         self.absolute_moves = True
@@ -84,6 +84,8 @@ class JubileeMotionController(MASH):
         version_pkt = subscribe_socket.recv(128).decode()
         if self.debug:
             print(f"received: {version_pkt}")
+        # Set the wakeup schedule based on the first time we update.
+        self.wake_time = time.perf_counter()
         # Request to enter patch-based subscription mode.
         j=json.dumps({"mode":"subscribe",
                       "version": 8,
@@ -92,34 +94,49 @@ class JubileeMotionController(MASH):
         subscribe_socket.sendall(j)
         # Do the first update.
         r = subscribe_socket.recv(self.__class__.MM_BUFFER_SIZE).decode()
-        if self.debug:
-            print(f"received: subscription 1st response")
         with Lock(): # Lock access to the machine model.
             self.machine_model.update(json.loads(r))
-        # Do scheduled updates
+        # Do scheduled updates on a loop.
         while self.keep_subscribing:
+            #print(f"thread woke up at {time.perf_counter()}")
+            if self.debug:
+                loop_start = time.perf_counter()
             # Acknowledge patch and request more; apply the patch; sleep
-            # This whole loop takes time, so we need to measure it such
-            # that our poll interval stays constant.
-            start_time_s = time.perf_counter()
             j = json.dumps({"command": "Acknowledge"}).encode()
             subscribe_socket.sendall(j)
-            # TODO: Optimize. Only the first few packets need a big buffer.
-            r = subscribe_socket.recv(self.__class__.MM_BUFFER_SIZE).decode()
+            # TODO: Optimize. If we are in patch mode, only the first few
+            #       packets need a big buffer.
+            start_time = time.perf_counter()
+            try:
+                r = subscribe_socket.recv(self.__class__.MM_BUFFER_SIZE).decode()
+            except json.decoder.JSONDecodeError:
+                print("Buffer too small!")
             with Lock(): # Lock access to the machine model.
-                try:
-                    # TODO: we need a recursive update here for Patch mode.
                     self.machine_model.update(json.loads(r))
-                    self.update_counter += 1
-                except json.decoder.JSONDecodeError:
-                    print("Buffer too small!")
-            elapsed_time_s = time.perf_counter() - start_time_s
-            if elapsed_time_s < self.__class__.POLL_INTERVAL_S:
-                self.sleep_interval_s = self.__class__.POLL_INTERVAL_S - elapsed_time_s
-                time.sleep(self.sleep_interval_s)
+            if self.debug:
+                print(f"lock + receive delay: {time.perf_counter() - start_time}")
+            # TODO: we need a recursive update here for Patch mode.
+            # Sleep until next scheduled update time.
+            if self.debug:
+                print(f"loop time: {time.perf_counter() - loop_start}")
+                print()
+            # Update the next wake time.
+            self.wake_time = self.__class__.POLL_INTERVAL_S + self.wake_time
+            if time.perf_counter() <= self.wake_time:
+                #print(f"thread sleeping. next update time: {self.wake_time}")
+                time.sleep(self.wake_time - time.perf_counter())
+            else:
+                # TODO: maybe accumulate or raise an error here?
+                print("Error: thread update speed too fast! "
+                                   "Missed update deadline!")
         subscribe_socket.shutdown(socket.SHUT_RDWR)
         subscribe_socket.close()
 
+
+    @cli_method
+    def print_curr_time_and_wake_time(self):
+        print(f"curr_time: {time.perf_counter()} | wake time: {self.wake_time}")
+        print(self.wake_time > time.perf_counter())
 
     def disconnect(self):
         """Close the connection."""
@@ -128,8 +145,8 @@ class JubileeMotionController(MASH):
             self.command_socket.close()
 
 
-    def gcode(self, cmd: str = "", wait=True):
-        """Send a string of GCode. Optional: wait for a response."""
+    def gcode(self, cmd: str = ""):
+        """Send a GCode string and wait for reply to ensure it was processed."""
         gcode_packet = {"code": cmd,"channel": 0,"command": "SimpleCode"}
         if self.debug or self.simulated:
             print(f"sending: {gcode_packet}")
@@ -137,15 +154,13 @@ class JubileeMotionController(MASH):
             return
         j=json.dumps(gcode_packet).encode()
         self.command_socket.send(j)
-        if wait:
-            r=self.command_socket.recv(self.__class__.MM_BUFFER_SIZE).decode()
-            if ('Error' in r):
-                print('Error detected, stopping script')
-                print(j)
-                print(r)
-                exit(8)
-            return(r)
-        return 0
+        r=self.command_socket.recv(self.__class__.MM_BUFFER_SIZE).decode()
+        if ('Error' in r):
+            print('Error detected, stopping script')
+            print(j)
+            print(r)
+            exit(8)
+        return(r)
 
 
     @cli_method
@@ -211,50 +226,18 @@ class JubileeMotionController(MASH):
         # TODO: find way to recover from out-of-bounds move requests.
         # TODO: check if machine is homed first. Bail early if True.
 
-        with Lock(): # Read machine model and related info as a group.
-            end_pos = list(self.get_position())
-            update_num = self.update_counter
-            sleep_interval_s = self.sleep_interval_s
-        if self.debug:
-            print(f"Start pos: {end_pos}")
-        if self.absolute_moves:
-            end_pos[0] = x if x is not None else end_pos[0]
-            end_pos[1] = y if y is not None else end_pos[1]
-            end_pos[2] = z if z is not None else end_pos[2]
-        else:
-            end_pos[0] = end_pos[0] + x if x is not None else end_pos[0]
-            end_pos[1] = end_pos[1] + y if y is not None else end_pos[1]
-            end_pos[2] = end_pos[2] + z if z is not None else end_pos[2]
-        if self.debug:
-            print(f"end pos: {end_pos}")
-
+        # TODO: Either start in a state where the machine is not busy so we don't
+        #       save the wrong position and accumulate incorrectly OR
+        #       track the overall commanded position and compare.
         x_movement = f"X{x} " if x is not None else ""
         y_movement = f"Y{y} " if y is not None else ""
         z_movement = f"Z{z} " if z is not None else ""
         self.gcode(f"G0 {x_movement}{y_movement}{z_movement}F10000")
-        if wait:
-            start_time_s = time.perf_counter()
-            # Poll the machine model position until we arriave at target destination.
-            # Timeout if too much time has elapsed
-            while time.perf_counter() - start_time_s < self.__class__.MOVE_TIMEOUT_S:
-                with Lock(): # Read machine model and related info as a group.
-                    curr_pos = list(self.get_position())
-                    update_num = self.update_counter
-                    sleep_interval_s = self.sleep_interval_s
-                if self.debug:
-                    print(f"Curr pos: {curr_pos}")
-                # Are we there yet? Check and handle floating point error.
-                if abs(end_pos[0] - curr_pos[0]) < self.__class__.EPSILON and \
-                   abs(end_pos[1] - curr_pos[1]) < self.__class__.EPSILON and \
-                   abs(end_pos[2] - curr_pos[2]) < self.__class__.EPSILON:
-                    return
-                # New data was acquired since we last checked
-                elif update_num != self.update_counter:
-                    continue
-                else:
-                    # Wake up after update thread has updated again.
-                    time.sleep(sleep_interval_s + 0.001)
-            raise RuntimeError("Error: machine has not arrived at target desitnation.")
+
+        if not wait:
+            return
+        self.wait_until_idle()
+
 
     def _set_absolute_moves(self, force: bool = False):
         if self.absolute_moves and not force:
@@ -324,6 +307,11 @@ class JubileeMotionController(MASH):
         self.gcode("T-1")
 
 
+    def is_busy(self):
+        """Get the high-level status of the machine."""
+        return self.machine_model['state']['status'].lower() == 'busy'
+
+
     @cli_method
     def test_square(self):
         self.gcode("G0 X0 Y0", wait=False)
@@ -387,17 +375,17 @@ class JubileeMotionController(MASH):
                 key = stdscr.getch()
                 stdscr.refresh()
                 if key == curses.KEY_UP:
-                    self.move_xyz_relative(y=-step_size)
+                    self.move_xyz_relative(y=-step_size, wait=False)
                 elif key == curses.KEY_DOWN:
-                    self.move_xyz_relative(y=step_size)
+                    self.move_xyz_relative(y=step_size, wait=False)
                 elif key == curses.KEY_LEFT:
-                    self.move_xyz_relative(x=step_size)
+                    self.move_xyz_relative(x=step_size, wait=False)
                 elif key == curses.KEY_RIGHT:
-                    self.move_xyz_relative(x=-step_size)
+                    self.move_xyz_relative(x=-step_size, wait=False)
                 elif key == ord('w'):
-                    self.move_xyz_relative(z=step_size)
+                    self.move_xyz_relative(z=step_size, wait=False)
                 elif key == ord('s'):
-                    self.move_xyz_relative(z=-step_size)
+                    self.move_xyz_relative(z=-step_size, wait=False)
                 elif key == ord('['):
                     step_size = step_size/2.0
                     if step_size < min_step_size:
@@ -408,11 +396,37 @@ class JubileeMotionController(MASH):
                     if step_size > max_step_size:
                         step_size = max_step_size
                     stdscr.addstr(6,0,f"Step Size: {step_size:<8}")
+            self.wait_until_idle()
         finally:
             curses.nocbreak()
             stdscr.keypad(False)
             curses.echo()
             curses.endwin()
+
+    def wait_until_idle(self, timeout = TIMEOUT_S):
+        start_wait_time = time.perf_counter()
+        # Wait at least a full update interval to ensure we are polling
+        # new data after the move command was sent.
+        # Note: we are assuming that if a gcode is acknowledged it immediately
+        #       changes from idle to busy if it was not already busy.
+        self._sleep_until_next_update()
+        self._sleep_until_next_update()
+        while self.is_busy():
+            if time.perf_counter() - start_wait_time > timeout:
+                raise RuntimeError("Error: Machine has timed out while waiting "
+                                   "for a move to complete.")
+            self._sleep_until_next_update()
+
+    def _sleep_until_next_update(self):
+        """Sleep until we know the machine model has received fresh data."""
+        #print(f"attempting to sleep at {time.perf_counter()}. Will sleep till {self.wake_time}")
+        sleep_interval = self.wake_time - time.perf_counter()
+        if sleep_interval < 0:
+            # Woke up before or during update thread's execution. Sleep again.
+            #print(f"  Awoke too early. Will actually sleep till {self.wake_time + self.__class__.POLL_INTERVAL_S}")
+            sleep_interval = self.wake_time + self.__class__.POLL_INTERVAL_S - time.perf_counter()
+        # Small delta to guarantee we wakeup after the thread.
+        time.sleep(sleep_interval)
 
 
     def __enter__(self):
