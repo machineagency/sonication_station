@@ -311,6 +311,13 @@ class JubileeMotionController(MASH):
         """Get the high-level status of the machine."""
         return self.machine_model['state']['status'].lower() == 'busy'
 
+    @property
+    @cli_method
+    def curr_tool_index(self):
+        """Return the index of the current tool."""
+        return self.machine_model['state']['currentTool']
+
+
 
     @cli_method
     def test_square(self):

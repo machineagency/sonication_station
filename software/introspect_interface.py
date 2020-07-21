@@ -6,6 +6,7 @@ import readline
 from math import floor
 import os
 import pprint
+import types
 
 
 # TODO: replace input entirely with something that handles "ESC" characters and returns None.
@@ -13,10 +14,12 @@ import pprint
 # TODO: enable tab completion for help
 # TODO: check for how this fn handles functions wrapped with other decorators.
 # TODO: test negative number int input
+# TODO: test functions with multiple decorators.
 
 def cli_method(func):
     """Decorator to register method as available to the CLI."""
     func.is_cli_method = True
+    #setattr(func, 'is_cli_method', True)
     return func
 
 class UserInputError(Exception):
@@ -78,9 +81,24 @@ class MASH(object):
         cli_methods = {}
 
         # Collect all methods that have the is_cli_method as an attribute
-        cli_methods = {m[0]:m[1] for m in getmembers(self)
-                        if ismethod(getattr(self, m[0]))
-                        and hasattr(m[1], 'is_cli_method')}
+        #cli_methods = {m[0]:m[1] for m in getmembers(self)
+        #                if ismethod(getattr(self, m[0]))
+        #                and hasattr(m[1], 'is_cli_method')}
+
+        # Workaround because getmembers does not get functions decorated with @property
+        # https://stackoverflow.com/questions/3681272/can-i-get-a-reference-to-a-python-property
+        def get_dict_attr(obj, attr):
+            for obj in [obj] + obj.__class__.mro():
+                if attr in obj.__dict__:
+                    return obj.__dict__[attr]
+            raise AttributeError
+
+        for name in dir(self):
+            value = get_dict_attr(self, name)
+            if isinstance(value, property):
+                value = value.fget
+            if hasattr(value, 'is_cli_method'):
+                cli_methods[name] = value
 
         return cli_methods
 
@@ -106,8 +124,6 @@ class MASH(object):
             #    method = method.__wrapped__
 
             for parameter_name in sig.parameters:
-                #if parameter_name == "self":
-                #    continue
                 param_order.append(parameter_name)
                 parameter = {}
                 parameter_type = None
@@ -116,14 +132,21 @@ class MASH(object):
                     parameter_type = parameter_sig.annotation
                 parameter['type'] = parameter_type if parameter_type is not None else None
 
+
                 # Enforce type hinting for all decoorated methods.
-                if parameter['type'] is None:
-                    raise SyntaxError(f"Error: {fn_name} must be type hinted. \
-                                        Cannot infer type for arg: {arg_name}.")
+                if parameter['type'] is None and parameter_name not in ['self', 'cls']:
+                    raise SyntaxError(f"Error: {method_name} must be type hinted. \
+                                        Cannot infer type for arg: {parameter_name}.")
 
                 # Check for defaults.
                 if parameter_sig.default is not parameter_sig.empty:
                     parameter["default"] = parameter_sig.default
+                elif parameter_name == 'self':
+                    parameter["default"] = self
+                elif parameter_name == 'cls':
+                    parameter["default"] = self.__class__
+
+                # Check for Enum types.
                 if parameter_type is not None and issubclass(parameter_type, Enum):
                     parameter["type"] = "Enum"
                     parameter["options"] = list(parameter_type.__members__.keys())
@@ -219,6 +242,8 @@ class MASH(object):
         self.func_name = cmd_with_args[0]
         param_signature = cmd_with_args[1:]
         self.func_params = self.cli_method_definitions[self.func_name]['param_order']
+        if self.func_params[0] in ['self', 'cls']:
+            self.func_params = self.func_params[1:]
 
         # First filter out already-entered positional arguments.
         # Abort upon first keyword.
@@ -297,24 +322,31 @@ class MASH(object):
                     raise UserInputError(f"Error: {fn_name} is not a valid "
                                           "command.")
 
+                param_count = len(self.cli_method_definitions[fn_name]['param_order'])
+                param_order = self.cli_method_definitions[fn_name]['param_order']
+                # Remove self or cls from param count and arg list.
+                if self.cli_method_definitions[fn_name]['param_order'][0] in ['self', 'cls']:
+                    param_count -= 1
+                    param_order = param_order[1:]
+
                 # Ensure required arg count is met.
-                if len(arg_blocks) > len(self.cli_method_definitions[fn_name]['param_order']):
+                if len(arg_blocks) > param_count:
                     raise UserInputError("Error: too many positional arguments.")
 
                 # Collect args and kwargs, enforcing args before kwargs.
                 for arg_index, arg_block in enumerate(arg_blocks):
-                    # Assume kwarg with key/value pair split by '='
+                    # Assume keyword arg is specified by key/value pair split by '='
                     try:
                         arg_name, val_str = arg_block.split("=")
                         no_more_args = True
-                    # Otherwise: positional arg with order enforcement.
+                    # Otherwise: positional arg. Enforce parameter order.
                     except (ValueError, AttributeError):
                         # Enforce that positional args come before kwargs.
                         if no_more_args:
                             raise UserInputError(
                                 "Error: all positional arguments must be "
                                  "specified before any keyword arguments.")
-                        arg_name = self.cli_method_definitions[fn_name]['param_order'][arg_index]
+                        arg_name = param_order[arg_index]
                         val_str = arg_block
                     val = self.cli_method_definitions[fn_name]['parameters'][arg_name]['type'](val_str)
                     kwargs[arg_name] = val

@@ -16,7 +16,8 @@ class Labmate(JubileeMotionController):
 
     WELL_COUNT_TO_ROWS = {96: (8, 12),
                           48: (6, 8),
-                           6: (2, 3)}
+                           6: (2, 3),
+                           12: (3, 4)}
     DECK_PLATE_COUNT = 6
 
     DECK_PLATE_CONFIG = \
@@ -268,6 +269,24 @@ class Labmate(JubileeMotionController):
         y_transformed = x_nominal * sin(theta) + y_nominal * cos(theta) + a[1]
 
         return x_transformed, y_transformed
+
+    @cli_method
+    def test(self):
+        plunge_depth = 20
+        time.sleep(3)
+        self.pickup_tool(1)
+        self.move_xy_absolute(150, 150)
+
+        _, _, z = self.get_position()
+        # Sanity check that we're not plunging too deep. Plunge depth is relative.
+        if z - plunge_depth <= 0:
+            raise UserInputError("Error: plunge depth is too deep.")
+        self.move_xyz_absolute(z=(z - plunge_depth), wait=True)
+        #self.sonicator.sonicate(seconds) # TODO: maybe slow this down?
+        time.sleep(2)
+        self.move_xy_absolute() # safe height.
+
+        self.park_tool()
 
 
     def __enter__(self):
