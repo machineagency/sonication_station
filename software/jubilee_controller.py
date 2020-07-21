@@ -7,7 +7,7 @@ import curses
 import readline
 #import getch
 from threading import Thread, Lock
-from introspect_interface import MASH, cli_method
+from mash import MASH, cli_method
 
 #TODO: Figure out how to print error messages from the Duet.
 

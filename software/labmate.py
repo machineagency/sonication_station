@@ -7,7 +7,7 @@ import copy
 import subprocess, signal, os # for launching/killing video feed
 from math import sqrt, acos, asin, cos, sin
 from threading import Thread, Lock
-from introspect_interface import MASH, cli_method, UserInputError
+from mash import MASH, cli_method, UserInputError
 from jubilee_controller import JubileeMotionController
 #from sonicator import sonicator
 
