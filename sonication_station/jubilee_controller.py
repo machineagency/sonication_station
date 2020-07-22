@@ -5,13 +5,12 @@ import json
 import time
 import curses
 import readline
-#import getch
 from threading import Thread, Lock
-from mash import MASH, cli_method
+from inpromptu import Inpromptu, cli_method
 
 #TODO: Figure out how to print error messages from the Duet.
 
-class JubileeMotionController(MASH):
+class JubileeMotionController(Inpromptu):
     """Driver for sending motion cmds and polling the machine state."""
     POLL_INTERVAL_S = 0.4 # Interval for updating the machine model.
     SOCKET_ADDRESS = '/var/run/dsf/dcs.sock'
@@ -444,5 +443,5 @@ class JubileeMotionController(MASH):
 
 
 if __name__ == "__main__":
-    with JubileeMotionController(simulated=False) as jubilee:
+    with JubileeMotionController(simulated=True) as jubilee:
         jubilee.cli()

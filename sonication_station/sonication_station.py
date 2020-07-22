@@ -7,11 +7,11 @@ import copy
 import subprocess, signal, os # for launching/killing video feed
 from math import sqrt, acos, asin, cos, sin
 from threading import Thread, Lock
-from mash import MASH, cli_method, UserInputError
+from inpromptu import cli_method, UserInputError
 from jubilee_controller import JubileeMotionController
 #from sonicator import sonicator
 
-class Labmate(JubileeMotionController):
+class SonicationStation(JubileeMotionController):
     """Driver for sending motion cmds and polling the machine state."""
 
     WELL_COUNT_TO_ROWS = {96: (8, 12),
@@ -298,5 +298,5 @@ class Labmate(JubileeMotionController):
 
 
 if __name__ == "__main__":
-    with Labmate(simulated=False, debug=False) as jubilee:
+    with SonicationStation(simulated=False, debug=False) as jubilee:
         jubilee.cli()
