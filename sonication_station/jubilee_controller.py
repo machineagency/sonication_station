@@ -132,10 +132,10 @@ class JubileeMotionController(Inpromptu):
         subscribe_socket.close()
 
 
-    @cli_method
-    def print_curr_time_and_wake_time(self):
-        print(f"curr_time: {time.perf_counter()} | wake time: {self.wake_time}")
-        print(self.wake_time > time.perf_counter())
+    #@cli_method
+    #def print_curr_time_and_wake_time(self):
+    #    print(f"curr_time: {time.perf_counter()} | wake time: {self.wake_time}")
+    #    print(self.wake_time > time.perf_counter())
 
     def disconnect(self):
         """Close the connection."""
@@ -340,7 +340,7 @@ class JubileeMotionController(Inpromptu):
 
 
     @cli_method
-    def print_machine_model(self):
+    def show_machine_model(self):
         import pprint
         pprint.pprint(self.machine_model)
 
