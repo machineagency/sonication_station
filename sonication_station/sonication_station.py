@@ -81,18 +81,20 @@ class SonicationStation(JubileeMotionController):
     @property
     @cli_method
     def safe_z(self):
+        """Return the \"safe z\" height."""
         return self.deck_config["safe_z"]
 
 
+    @safe_z.setter
     @cli_method
-    def set_safe_z(self, z: float = None):
+    def safe_z(self, z: float = None):
         """Set the specified height to be the \"safe z\" height.
         If no height is specified, the machine will take the current height.
         The machine will always retract to this position before moving in XY.
         """
         if z is None:
         # Get current height.
-            _, _, self.deck_config["safe_z"] = self.get_position()
+            _, _, self.deck_config["safe_z"] = self.position()
         elif z > 0:
             self.safe_z = z
 
@@ -117,7 +119,7 @@ class SonicationStation(JubileeMotionController):
         if self.curr_tool_index != self.__class__.CAMERA_TOOL_INDEX:
             self.pickup_tool(self.__class__.CAMERA_TOOL_INDEX)
 
-        if self.get_position()[2] < self.safe_z:
+        if self.position()[2] < self.safe_z:
             self.move_xyz_absolute(z=self.safe_z)
 
         well_locations = ["starting_well_centroid",
@@ -161,7 +163,8 @@ class SonicationStation(JubileeMotionController):
 
 
     @cli_method
-    def setup_plate(self, deck_index: int = None, well_count: int = None):
+    def setup_plate(self, deck_index: int = None, well_count: int = None,
+                    plate_loaded: bool = False):
         """Configure the plate type and location."""
         try:
             if deck_index is None:
@@ -174,25 +177,34 @@ class SonicationStation(JubileeMotionController):
                 well_count = int(self.input(f"Enter number of wells: "))
             self.deck_config['plates'][deck_index]["well_count"] = well_count
 
+            self.completions = ["y", "n"]
+            plate_loaded = self.input("Is the plate already loaded on deck slot "
+                                      f"{deck_index}?")
+            if plate_loaded.lower() not in ["y", "yes"]:
+                self.move_xy_absolute(0,0)
+                self.input("Please load the plate in deck slot {deck_index}. "
+                           "Press any key when ready.")
+
             row_count, col_count = self.__class__.WELL_COUNT_TO_ROWS[well_count]
             last_row_letter = chr(row_count + 65 - 1)
 
             self.enable_live_video()
             self.pickup_tool(self.__class__.CAMERA_TOOL_INDEX)
+            self.move_xyz_absolute()
             self.input("Commencing manual zeroing. Press any key when ready.")
             self.keyboard_control(prompt=
                 f"Center the tool head over the well position A1")
-            self.deck_config['plates'][deck_index]["starting_well_centroid"] = self.get_position()[0:2]
+            self.deck_config['plates'][deck_index]["starting_well_centroid"] = self.position()[0:2]
 
             self.input("Commencing manual zeroing. Press any key when ready.")
             self.keyboard_control(prompt=
                 f"Center the tool head over the well position A{row_count}")
-            self.deck_config['plates'][deck_index]["first_row_last_col_well_centroid"] = self.get_position()[0:2]
+            self.deck_config['plates'][deck_index]["first_row_last_col_well_centroid"] = self.position()[0:2]
 
             self.input("Commencing manual zeroing. Press any key when ready.")
             self.keyboard_control(prompt=
                 f"Center the tool head over the well position {last_row_letter}{row_count}")
-            self.deck_config['plates'][deck_index]["ending_well_centroid"] = self.get_position()[0:2]
+            self.deck_config['plates'][deck_index]["ending_well_centroid"] = self.position()[0:2]
             import pprint
             pprint.pprint(self.deck_config['plates'][deck_index])
 
@@ -221,7 +233,7 @@ class SonicationStation(JubileeMotionController):
 
         print(f"Sonicating at: ({x}, {y})")
         self.move_xy_absolute(x,y) # Position over the well at safe z height.
-        _, _, z = self.get_position()
+        _, _, z = self.position()
         self.move_xyz_absolute(z=(z - plunge_depth), wait=True)
         print(f"sonicating for {seconds} seconds!!")
         self.sonicator.sonicate(seconds) # TODO: maybe slow this down?
@@ -289,6 +301,7 @@ class SonicationStation(JubileeMotionController):
 
         return x_transformed, y_transformed
 
+
     @cli_method
     def demo(self):
         plunge_depth = 15
@@ -309,4 +322,4 @@ class SonicationStation(JubileeMotionController):
 
 if __name__ == "__main__":
     with SonicationStation(simulated=False, debug=False) as jubilee:
-        jubilee.cli()
+        jubilee.cmdloop()

@@ -7,8 +7,22 @@ import curses
 import readline
 from threading import Thread, Lock
 from inpromptu import Inpromptu, cli_method
+from functools import wraps
 
 #TODO: Figure out how to print error messages from the Duet.
+
+class MachineStateError(Exception):
+    """Raise this error if the machine is in the wrong state to perform such a command."""
+    pass
+
+def machine_is_homed(func):
+    @wraps(func) # We need this for @cli_method to work
+    def homing_check(self, *args, **kwds):
+        if not all([axis['homed'] for axis in self.machine_model['move']['axes']]):
+            raise MachineStateError("Error: machine must first be homed.")
+        return func(self, *args, **kwds)
+
+    return homing_check
 
 class JubileeMotionController(Inpromptu):
     """Driver for sending motion cmds and polling the machine state."""
@@ -37,10 +51,6 @@ class JubileeMotionController(Inpromptu):
         self.connect()
         if reset:
             self.reset() # also does a reconnect.
-
-    def cli(self):
-        """Drop the user into a command line interface."""
-        self.cmdloop()
 
 
     def connect(self):
@@ -136,13 +146,6 @@ class JubileeMotionController(Inpromptu):
     #def print_curr_time_and_wake_time(self):
     #    print(f"curr_time: {time.perf_counter()} | wake time: {self.wake_time}")
     #    print(self.wake_time > time.perf_counter())
-
-    def disconnect(self):
-        """Close the connection."""
-        if not self.simulated:
-            self.command_socket.shutdown(socket.SHUT_RDWR)
-            self.command_socket.close()
-
 
     def gcode(self, cmd: str = ""):
         """Send a GCode string and wait for reply to ensure it was processed."""
@@ -268,8 +271,9 @@ class JubileeMotionController(Inpromptu):
         self._move_xyz(x, y, z, wait)
 
 
+    @property
     @cli_method
-    def get_position(self):
+    def position(self):
         """Returns the machine control point in mm."""
         # We are assuming axes are ordered X, Y, Z, U. Where is this order defined?
         tool_offsets = [0, 0, 0]
@@ -306,16 +310,17 @@ class JubileeMotionController(Inpromptu):
         self.gcode("T-1")
 
 
+    @property
     def is_busy(self):
         """Get the high-level status of the machine."""
         return self.machine_model['state']['status'].lower() == 'busy'
+
 
     @property
     @cli_method
     def curr_tool_index(self):
         """Return the index of the current tool."""
         return self.machine_model['state']['currentTool']
-
 
 
     @cli_method
@@ -346,6 +351,7 @@ class JubileeMotionController(Inpromptu):
 
 
     @cli_method
+    @machine_is_homed
     def keyboard_control(self, prompt: str = "=== Manual Control ==="):
         """Use keyboard input to move the machine in steps.
         ↑ = forwards (-Y)
@@ -367,12 +373,12 @@ class JubileeMotionController(Inpromptu):
         stdscr.keypad(True)
 
         stdscr.addstr(0,0, prompt)
-        stdscr.addstr(1,0,"Press 'q' to quit.")
-        stdscr.addstr(2,0,"Commands:")
-        stdscr.addstr(3,0,"  Arrow keys for XY; '[' and ']' to increase movement step size")
-        stdscr.addstr(4,0,"  '[' and ']' to decrease/increase movement step size")
-        stdscr.addstr(5,0,"  's' and 'w' to lower/raise z")
-        stdscr.addstr(6,0,f"Step Size: {step_size:<8}")
+        stdscr.addstr(2,0,"Press 'q' to quit.")
+        stdscr.addstr(3,0,"Commands:")
+        stdscr.addstr(4,0,"  Arrow keys for XY; '[' and ']' to increase movement step size")
+        stdscr.addstr(5,0,"  '[' and ']' to decrease/increase movement step size")
+        stdscr.addstr(6,0,"  's' and 'w' to lower/raise z")
+        stdscr.addstr(7,0,f"Step Size: {step_size:<8}")
         stdscr.refresh()
 
         key = ''
@@ -396,12 +402,12 @@ class JubileeMotionController(Inpromptu):
                     step_size = step_size/2.0
                     if step_size < min_step_size:
                         step_size = min_step_size
-                    stdscr.addstr(6,0,f"Step Size: {step_size:<8}")
+                    stdscr.addstr(7,0,f"Step Size: {step_size:<8}")
                 elif key == ord(']'):
                     step_size = step_size*2.0
                     if step_size > max_step_size:
                         step_size = max_step_size
-                    stdscr.addstr(6,0,f"Step Size: {step_size:<8}")
+                    stdscr.addstr(7,0,f"Step Size: {step_size:<8}")
             self.wait_until_idle()
         finally:
             curses.nocbreak()
@@ -417,7 +423,7 @@ class JubileeMotionController(Inpromptu):
         #       changes from idle to busy if it was not already busy.
         self._sleep_until_next_update()
         self._sleep_until_next_update()
-        while self.is_busy():
+        while self.is_busy:
             if time.perf_counter() - start_wait_time > timeout:
                 raise RuntimeError("Error: Machine has timed out while waiting "
                                    "for a move to complete.")
@@ -435,6 +441,13 @@ class JubileeMotionController(Inpromptu):
         time.sleep(sleep_interval)
 
 
+    def disconnect(self):
+        """Close the connection."""
+        if not self.simulated:
+            self.command_socket.shutdown(socket.SHUT_RDWR)
+            self.command_socket.close()
+
+
     def __enter__(self):
       return self
 
@@ -443,5 +456,5 @@ class JubileeMotionController(Inpromptu):
 
 
 if __name__ == "__main__":
-    with JubileeMotionController(simulated=True) as jubilee:
-        jubilee.cli()
+    with JubileeMotionController(simulated=False) as jubilee:
+        jubilee.cmdloop()
