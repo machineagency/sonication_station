@@ -111,6 +111,15 @@ class SonicationStation(JubileeMotionController):
 
 
     @cli_method
+    def home_all(self):
+        response = input("WARNING: is the deck clear of plates? [y/n]")
+        if response.lower() in ["y", "yes"]:
+            super().home_all()
+        else:
+            print("Aborting homing. Please remove all plates from the deck first.")
+
+
+    @cli_method
     @machine_is_homed
     def check_plate_registration_points(self, plate_index: int = 0):
         """Move to predefined starting location for deck plate."""
@@ -198,7 +207,7 @@ class SonicationStation(JubileeMotionController):
             self.move_xyz_absolute()
             self.input("Commencing manual zeroing. Press any key when ready or 'CTRL-C' to abort")
             self.keyboard_control(prompt="Center the camera over well position A1. " \
-                                  "Press 'q' to set the teach point or 'CTRL-C' to abort.".)
+                                  "Press 'q' to set the teach point or 'CTRL-C' to abort.")
             teach_points.append(self.position[0:2])
 
             self.input("Commencing manual zeroing. Press any key when ready or 'CTRL-C' to abort.")
@@ -209,7 +218,7 @@ class SonicationStation(JubileeMotionController):
             self.input("Commencing manual zeroing. Press any key when ready or CTRL-C to abort.")
             self.keyboard_control(prompt=
                 f"Center the camera over well position {last_row_letter}{row_count}. "
-                "Press 'q' to set the teach point or 'CTRL-C' to abort.".)
+                "Press 'q' to set the teach point or 'CTRL-C' to abort.")
             teach_points.append(self.position[0:2])
             # Save points at the end such that the user can abort at any time.
             self.deck_config['plates'][deck_index]["starting_well_centroid"] = teach_points[0]
