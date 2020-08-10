@@ -222,6 +222,7 @@ class JubileeMotionController(Inpromptu):
             self.gcode(f"G92 {axis.upper()}0")
 
 
+    @machine_is_homed
     def _move_xyz(self, x: float = None, y: float = None, z: float = None,
                 wait: bool = True):
         """Move in XYZ. Absolute/relative set externally. Optional: wait until done."""

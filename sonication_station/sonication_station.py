@@ -9,12 +9,14 @@ import subprocess, signal, os # for launching/killing video feed
 from math import sqrt, acos, asin, cos, sin
 from threading import Thread, Lock
 from inpromptu import cli_method, UserInputError
-from jubilee_controller import JubileeMotionController
+from jubilee_controller import JubileeMotionController, machine_is_homed
 from sonicator import Sonicator
 #from sonicator import sonicator
 
 class SonicationStation(JubileeMotionController):
     """Driver for sending motion cmds and polling the machine state."""
+
+    SD_CONFIG_FILEPATH = "/opt/dsf/sd"
 
     WELL_COUNT_TO_ROWS = {96: (8, 12),
                           48: (6, 8),
@@ -62,7 +64,7 @@ class SonicationStation(JubileeMotionController):
         """Start with sane defaults. Setup Deck configuration."""
         super().__init__(debug, simulated)
         print(self.__class__.splash)
-        # Scratch make it.
+        # Pull Deck Configuration if one is specified. Make a blank one otherwise.
         self.deck_config = {}
         self.deck_config["plates"] = [copy.deepcopy(self.__class__.DECK_PLATE_CONFIG) \
                                       for i in range(self.__class__.DECK_PLATE_COUNT)]
@@ -94,7 +96,7 @@ class SonicationStation(JubileeMotionController):
         """
         if z is None:
         # Get current height.
-            _, _, self.deck_config["safe_z"] = self.position()
+            _, _, self.deck_config["safe_z"] = self.position
         elif z > 0:
             self.safe_z = z
 
@@ -109,7 +111,8 @@ class SonicationStation(JubileeMotionController):
 
 
     @cli_method
-    def check_well_locations(self, plate_index: int = 0):
+    @machine_is_homed
+    def check_plate_registration_points(self, plate_index: int = 0):
         """Move to predefined starting location for deck plate."""
         if self.safe_z is None:
             raise UserInputError(f"Error: safe z height is not defined.")
@@ -119,7 +122,7 @@ class SonicationStation(JubileeMotionController):
         if self.curr_tool_index != self.__class__.CAMERA_TOOL_INDEX:
             self.pickup_tool(self.__class__.CAMERA_TOOL_INDEX)
 
-        if self.position()[2] < self.safe_z:
+        if self.position[2] < self.safe_z:
             self.move_xyz_absolute(z=self.safe_z)
 
         well_locations = ["starting_well_centroid",
@@ -163,9 +166,11 @@ class SonicationStation(JubileeMotionController):
 
 
     @cli_method
+    @machine_is_homed
     def setup_plate(self, deck_index: int = None, well_count: int = None,
                     plate_loaded: bool = False):
         """Configure the plate type and location."""
+        teach_points = []
         try:
             if deck_index is None:
                 self.completions = list(map(str,range(self.__class__.DECK_PLATE_COUNT)))
@@ -191,29 +196,34 @@ class SonicationStation(JubileeMotionController):
             self.enable_live_video()
             self.pickup_tool(self.__class__.CAMERA_TOOL_INDEX)
             self.move_xyz_absolute()
-            self.input("Commencing manual zeroing. Press any key when ready.")
-            self.keyboard_control(prompt=
-                f"Center the tool head over the well position A1")
-            self.deck_config['plates'][deck_index]["starting_well_centroid"] = self.position()[0:2]
+            self.input("Commencing manual zeroing. Press any key when ready or 'CTRL-C' to abort")
+            self.keyboard_control(prompt="Center the camera over well position A1. " \
+                                  "Press 'q' to set the teach point or 'CTRL-C' to abort.".)
+            teach_points.append(self.position[0:2])
 
-            self.input("Commencing manual zeroing. Press any key when ready.")
+            self.input("Commencing manual zeroing. Press any key when ready or 'CTRL-C' to abort.")
             self.keyboard_control(prompt=
-                f"Center the tool head over the well position A{row_count}")
-            self.deck_config['plates'][deck_index]["first_row_last_col_well_centroid"] = self.position()[0:2]
+                f"Center the camera over well position A{row_count}")
+            teach_points.append(self.position[0:2])
 
-            self.input("Commencing manual zeroing. Press any key when ready.")
+            self.input("Commencing manual zeroing. Press any key when ready or CTRL-C to abort.")
             self.keyboard_control(prompt=
-                f"Center the tool head over the well position {last_row_letter}{row_count}")
-            self.deck_config['plates'][deck_index]["ending_well_centroid"] = self.position()[0:2]
-            import pprint
-            pprint.pprint(self.deck_config['plates'][deck_index])
-
+                f"Center the camera over well position {last_row_letter}{row_count}. "
+                "Press 'q' to set the teach point or 'CTRL-C' to abort.".)
+            teach_points.append(self.position[0:2])
+            # Save points at the end such that the user can abort at any time.
+            self.deck_config['plates'][deck_index]["starting_well_centroid"] = teach_points[0]
+            self.deck_config['plates'][deck_index]["first_row_last_col_well_centroid"] = teach_points[1]
+            self.deck_config['plates'][deck_index]["ending_well_centroid"] = teach_points[2]
+        except KeyboardInterrupt:
+            print("Aborting. Well locations not saved.")
         finally:
-            self.completions = None
             self.disable_live_video()
             self.park_tool()
 
+
     @cli_method
+    @machine_is_homed
     def sonicate_well(self, deck_index: int, row_letter: str, column_index: int,
                       plunge_depth: int, seconds: float):
         """Sonicate one plate well at a specified depth for a given time."""
@@ -222,7 +232,7 @@ class SonicationStation(JubileeMotionController):
             raise UserInputError("Error: safe Z height for XY travel moves "
                                  "must first be defined.")
         # Sanity check that we're not plunging too deep. Plunge depth is relative.
-        if z - plunge_depth <= 0:
+        if z - plunge_depth < 0:
             raise UserInputError("Error: plunge depth is too deep.")
 
         if self.curr_tool_index != self.__class__.SONICATOR_TOOL_INDEX:
@@ -233,7 +243,7 @@ class SonicationStation(JubileeMotionController):
 
         print(f"Sonicating at: ({x}, {y})")
         self.move_xy_absolute(x,y) # Position over the well at safe z height.
-        _, _, z = self.position()
+        _, _, z = self.position
         self.move_xyz_absolute(z=(z - plunge_depth), wait=True)
         print(f"sonicating for {seconds} seconds!!")
         self.sonicator.sonicate(seconds) # TODO: maybe slow this down?
@@ -310,7 +320,6 @@ class SonicationStation(JubileeMotionController):
         self.sonicate_well(0, "A", 2, plunge_depth, 2)
         self.sonicate_well(0, "A", 3, plunge_depth, 2)
         self.park_tool()
-
 
     def __enter__(self):
       return self

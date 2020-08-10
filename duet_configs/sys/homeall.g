@@ -1,0 +1,5 @@
+G91 G1 Z20 F800 S2          ; Lift z so we don't crash
+M98 P"homey.g"
+M98 P"homex.g"
+M98 P"homeu.g"
+M98 P"homez.g"
