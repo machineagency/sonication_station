@@ -51,6 +51,7 @@ class JubileeMotionController(Inpromptu):
         self.connect()
         if reset:
             self.reset() # also does a reconnect.
+        self._set_absolute_moves(force=True)
 
 
     def connect(self):
@@ -393,6 +394,7 @@ class JubileeMotionController(Inpromptu):
             stdscr.keypad(False)
             curses.echo()
             curses.endwin()
+            self._set_absolute_moves(force=True)
 
     def wait_until_idle(self, timeout = TIMEOUT_S):
         start_wait_time = time.perf_counter()

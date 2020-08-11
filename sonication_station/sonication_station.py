@@ -5,6 +5,7 @@ import json
 import time
 import copy
 import pprint
+import re
 import subprocess, signal, os # for launching/killing video feed
 from math import sqrt, acos, asin, cos, sin
 from functools import wraps
@@ -40,13 +41,23 @@ def requires_cleaning_station(func):
 
 
 class SonicationStation(JubileeMotionController):
-    """Driver for sending motion cmds and polling the machine state."""
+    """Driver for sending motion cmds and polling the machine state.
+
+    Protocol Methods:
+        methods decorated with @protocol_method can be invoked serially from a json file.
+
+    CLI Methods:
+        methods decorated with @cli_method are exposed to the prompt-based user interface.
+    """
+
     # Constants and Lookups:
     WELL_COUNT_TO_ROWS = {96: (8, 12),
                           48: (6, 8),
                            6: (2, 3),
                            12: (3, 4)}
     DECK_PLATE_COUNT = 6
+
+    CAMERA_FOCAL_LENGTH_OFFSET = 19
 
     # TODO: this info should be read from the machine model.
     CAMERA_TOOL_INDEX = 0
@@ -152,9 +163,9 @@ class SonicationStation(JubileeMotionController):
         """
         if z is None:
         # Get current height.
-            _, _, self.deck_config["safe_z"] = self.position
+            _, _, self.deck_config['safe_z'] = self.position
         elif z > 0:
-            self.safe_z = z
+            self.deck_config['safe_z'] = z
 
 
     @cli_method
@@ -236,20 +247,18 @@ class SonicationStation(JubileeMotionController):
 
         cleaning_config = copy.deepcopy(self.__class__.BLANK_CLEANING_CONFIG)
 
-        # Move the machine down to make space for loading the cleaning plates.
-        self.move_xy_absolute()
         # Prompt user to populate the machine with plates for cleaning.
         try:
             print("Cleaning Station Setup | Part 1: Plate Installation and Locating")
             plate_count = int(self.input("Enter the number of plates used for cleaning."))
-            for plate_index in plate_count:
-                deck_index = int(self.input("Enter the deck index for this plate."))
+            for plate_index in range(plate_count):
+                deck_index = int(self.input("Enter the deck index for this plate (i.e: 0, 1, .. 5)."))
                 cleaning_config["plates"].append(deck_index)
                 self.setup_plate(deck_index)
             print("Cleaning Station Setup | Part 2: Bath Specs")
             # Repeatedly prompt the user to define the visit order of each cleaning bath.
             while True:
-                deck_index = self.input("Enter the deck index for the current bath.")
+                deck_index = self.input("Enter the deck index for the current bath (i.e: 0, 1, 2, etc.).")
                 row, col = well_id_split(self.input("Enter the well location of the bath (i.e: A1, B2, etc.)."))
                 plunge_depth = self.input("Enter the sonicator plunge depth in mm.")
                 plunge_time = float(self.input("Enter the time (in seconds) to activate the sonicator."))
@@ -295,20 +304,19 @@ class SonicationStation(JubileeMotionController):
                 well_count = int(self.input(f"Enter number of wells: "))
 
             self.completions = ["y", "n"]
-            plate_loaded = self.input("Is the plate already loaded on deck slot "
-                                      f"{deck_index}?")
+            plate_loaded = self.input(f"Is the plate already loaded on deck slot {deck_index}?")
             if plate_loaded.lower() not in ["y", "yes"]:
                 # Move out of the way and let the user load the plate.
                 self.move_xy_absolute(0,0)
-                self.input("Please load the plate in deck slot {deck_index}. "
+                self.input(f"Please load the plate in deck slot {deck_index}. "
                            "Press any key when ready.")
 
             row_count, col_count = self.__class__.WELL_COUNT_TO_ROWS[well_count]
             last_row_letter = chr(row_count + 65 - 1)
 
             self.enable_live_video()
-            if self.position[2] < self.safe_z:
-                self.move_xyz_absolute(z=self.safe_z)
+            # Move such that the well plates are in focus.
+            self.move_xyz_absolute(z=(self.safe_z + self.__class__.CAMERA_FOCAL_LENGTH_OFFSET))
             self.pickup_tool(self.__class__.CAMERA_TOOL_INDEX)
             self.input("Commencing manual zeroing. Press any key when ready or 'CTRL-C' to abort")
             self.keyboard_control(prompt="Center the camera over well position A1. " \
@@ -326,7 +334,7 @@ class SonicationStation(JubileeMotionController):
                 "Press 'q' to set the teach point or 'CTRL-C' to abort.")
             teach_points.append(self.position[0:2])
             # Save everything at the end such that the user can abort at any time.
-            self.deck_config['plates'][deck_index] = copy.deepcopy(self.__class__.BLANK_DECK_CONFIGURATION)
+            self.deck_config['plates'][deck_index] = copy.deepcopy(self.__class__.BLANK_DECK_PLATE_CONFIG)
             self.deck_config['plates'][deck_index]["well_count"] = well_count
             self.deck_config['plates'][deck_index]["corner_well_centroids"][0] = teach_points[0]
             self.deck_config['plates'][deck_index]["corner_well_centroids"][1] = teach_points[1]
@@ -372,27 +380,44 @@ class SonicationStation(JubileeMotionController):
     @requires_cleaning_station
     def clean_sonicator(self):
         """Run the sonicator through the cleaning protocol."""
+        self.execute_protocol(self.deck_config['cleaning_config']['protocol'])
+
+
+    def execute_protocol_from_file(self, protocol_file_path):
+        """Open the protocol file and run the protocol."""
+        with open(protocol_file_path, 'r') as protocol_file:
+            protocol = json.loads(protocol_file.read())
+            self.execute_protocol(protocol)
+
+
+    def execute_protocol(self, protocol):
+        """Execute a list of protocol commands."""
         for cmd in cleaning_step:
             if cmd['operation'] not in self.protocol_methods:
                 raise UserInputError(f"Error. Method cmd['name'] is not a method that can be used in a protocol.")
+            fn = self.protocol_methods[cmd['operation']]
             kwargs = cmd['specs']
-            self.sonicate_well(**kwargs)
+            fn(**kwargs)
 
 
     def enable_live_video(self):
         """Enables the video feed."""
+        print("Starting camera feed.")
+        self.discarded_cam_output = open(os.devnull, 'w')
         self.cam_feed_process = \
             subprocess.Popen("./launch_camera_alignment_feed.sh", shell=True,
-                             preexec_fn=os.setsid)
+                             preexec_fn=os.setsid, stderr=self.discarded_cam_output)
 
 
     def disable_live_video(self):
         """Disables the video feed."""
         if self.cam_feed_process:
-            print("killing camera feed.")
+            print("Stopping camera feed.")
             os.killpg(os.getpgid(self.cam_feed_process.pid), signal.SIGTERM)
             #self.cam_feed_process.kill() This doesn't work.
             self.cam_feed_process = None
+        if self.discarded_cam_output is not None:
+            self.discarded_cam_output.close()
 
 
     def _get_well_position(self, deck_index: int, row_index: int, col_index: int):
