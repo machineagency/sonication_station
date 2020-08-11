@@ -278,9 +278,8 @@ class JubileeMotionController(Inpromptu):
         """Returns the machine control point in mm."""
         # We are assuming axes are ordered X, Y, Z, U. Where is this order defined?
         tool_offsets = [0, 0, 0]
-        current_tool = self.machine_model['state']['currentTool']
-        if current_tool != -1: # "-1" is equivalent to "no tools."
-            tool_offsets = self.machine_model['tools'][current_tool]['offsets'][:3]
+        if self.active_tool_index != -1: # "-1" is equivalent to "no tools."
+            tool_offsets = self.machine_model['tools'][self.active_tool_index]['offsets'][:3]
 
         axis_info = self.machine_model['move']['axes']
         x = axis_info[0].get('machinePosition', None)
@@ -319,30 +318,9 @@ class JubileeMotionController(Inpromptu):
 
     @property
     @cli_method
-    def curr_tool_index(self):
+    def active_tool_index(self):
         """Return the index of the current tool."""
         return self.machine_model['state']['currentTool']
-
-
-    @cli_method
-    def test_square(self):
-        self.gcode("G0 X0 Y0", wait=False)
-        self.gcode("G0 X20 Y0", wait=False)
-        self.gcode("G0 X20 Y20", wait=False)
-        self.gcode("G0 X00 Y20", wait=False)
-        self.gcode("G0 X0 Y0")
-
-    @cli_method
-    def test_circle(self):
-        import math
-        radius = 10
-        center = [150, 150]
-        segments = 20
-        for i in range(segments):
-            x = center[0] + radius * math.cos(i/segments * math.pi * 2)
-            y = center[1] + radius * math.sin(i/segments * math.pi * 2)
-            #print(f"x: {x} | y: {y}")
-            self.move_xyz_absolute(x, y, wait=False)
 
 
     @cli_method

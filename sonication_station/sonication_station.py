@@ -7,45 +7,74 @@ import copy
 import pprint
 import subprocess, signal, os # for launching/killing video feed
 from math import sqrt, acos, asin, cos, sin
+from functools import wraps
 from threading import Thread, Lock
 from inpromptu import cli_method, UserInputError
-from jubilee_controller import JubileeMotionController, machine_is_homed
+from jubilee_controller import JubileeMotionController, MachineStateError
 from sonicator import Sonicator
-#from sonicator import sonicator
+
+# TODO: put stickers on the deck plate to enumerate them.
+
+
+def protocol_method(func):
+    """Mark a function as usable in protocols."""
+    func.is_protocol_method = True
+    return func
+
+def requires_safe_z(func):
+    @wraps(func) # We need this for @cli_method to work
+    def safe_z_check(self, *args, **kwds):
+        if self.safe_z is None:
+            raise MachineStateError("Error: a safe_z height must first be defined before invoking this function.")
+        return func(self, *args, **kwds)
+    return safe_z_check
+
+
+def requires_cleaning_station(func):
+    @wraps(func) # We need this for @cli_method to work
+    def cleaning_station_check(self, *args, **kwds):
+        if self.deck_config["cleaning_config"] is None:
+            raise MachineStateError("Error: a cleaning station must first be defined before invoking this function.")
+        return func(self, *args, **kwds)
+    return cleaning_station_check
+
 
 class SonicationStation(JubileeMotionController):
     """Driver for sending motion cmds and polling the machine state."""
-
-    SD_CONFIG_FILEPATH = "/opt/dsf/sd"
-
+    # Constants and Lookups:
     WELL_COUNT_TO_ROWS = {96: (8, 12),
                           48: (6, 8),
                            6: (2, 3),
                            12: (3, 4)}
     DECK_PLATE_COUNT = 6
 
-    DECK_PLATE_CONFIG = \
-        {"id": "",
-         "starting_well_centroid": (150, 150),
-         "first_row_last_col_well_centroid": (100, 150),
-         "ending_well_centroid": (100, 120),
-         "well_count": 96,
-         "row_count": 8,
-         "col_count": 12}
-        #{"id": "",
-        # "starting_well_centroid": (None, None),
-        # "first_row_last_col_well_centroid": (None, None),
-        # "ending_well_centroid": (None, None),
-        # "well_count": None,
-        # "row_count": None,
-        # "col_count": None}
-
-    CLEANING_TIME_S = 3
-
+    # TODO: this info should be read from the machine model.
     CAMERA_TOOL_INDEX = 0
     SONICATOR_TOOL_INDEX = 1
 
-    splash = \
+    # Blank Configuration Template
+    BLANK_DECK_CONFIGURATION = \
+        {"plates": {},              # plate type and location, keyed by deck index.
+         "safe_z": None,            # retract height before moving around in XY.
+         "cleaning_config": None    # specs and protocol for cleaning.
+        }
+
+    BLANK_DECK_PLATE_CONFIG = \
+        {"id": "",
+         "corner_well_centroids": [(None, None), (None, None), (None, None)],
+         "well_count": None,
+         "liquid_level": {}
+        }
+
+    BLANK_CLEANING_CONFIG = \
+        {"plates": [],
+         "protocol": []
+        }
+
+    CLEANING_TIME_S = 3
+
+
+    SPLASH = \
 """
        __      __    _ __                     
       / /_  __/ /_  (_) /__  ___              
@@ -63,12 +92,9 @@ class SonicationStation(JubileeMotionController):
     def __init__(self, debug=False, simulated=False, deck_config_filepath="./config.json"):
         """Start with sane defaults. Setup Deck configuration."""
         super().__init__(debug, simulated)
-        print(self.__class__.splash)
+        print(self.__class__.SPLASH)
         # Pull Deck Configuration if one is specified. Make a blank one otherwise.
-        self.deck_config = {}
-        self.deck_config["plates"] = [copy.deepcopy(self.__class__.DECK_PLATE_CONFIG) \
-                                      for i in range(self.__class__.DECK_PLATE_COUNT)]
-        self.deck_config["safe_z"] = None
+        self.deck_config = copy.deepcopy(self.__class__.BLANK_DECK_CONFIGURATION)
         if deck_config_filepath:
             try:
                 self.load_deck_config(deck_config_filepath)
@@ -76,8 +102,38 @@ class SonicationStation(JubileeMotionController):
                 print("Could not load deck plate configuration from: "
                       f"{deck_config_filepath}")
 
+        self.protocol_methods = self._collect_protocol_methods()
         self.sonicator = Sonicator()
         self.cam_feed_process = None
+
+    def _collect_protocol_methods(self):
+        """Collect all protocol methods decorated with the correpsonding decorator.
+
+        protocol methods are any methods that can be invoked programmatically
+        from a json protocol file.
+        """
+        protocol_methods = {}
+        # # Workaround because getmembers does not get functions decorated specifically with @property
+        # https://stackoverflow.com/questions/3681272/can-i-get-a-reference-to-a-python-property
+        def get_dict_attr(obj, attr):
+            for obj in [obj] + obj.__class__.mro():
+                if attr in obj.__dict__:
+                    return obj.__dict__[attr]
+            raise AttributeError
+
+        for name in dir(self):
+            value = get_dict_attr(self, name)
+            # Special case properties, which store setter functions in a different location.
+            if isinstance(value, property):
+                if hasattr(value.fset, 'is_protocol_method'):
+                    protocol_methods[name] = value.fset
+                continue
+            # Special case classmethods.
+            if isinstance(value, classmethod):
+                value = value.__func__
+            if hasattr(value, 'is_protocol_method'):
+                protocol_methods[name] = value
+        return protocol_methods
 
 
     @property
@@ -120,31 +176,26 @@ class SonicationStation(JubileeMotionController):
 
 
     @cli_method
-    @machine_is_homed
+    @requires_safe_z
     def check_plate_registration_points(self, plate_index: int = 0):
         """Move to predefined starting location for deck plate."""
-        if self.safe_z is None:
-            raise UserInputError(f"Error: safe z height is not defined.")
         if plate_index < 0 or plate_index >= self.__class__.DECK_PLATE_COUNT:
             raise UserInputError(f"Error: deck plates must fall \
                 within the range: [0, {plate_index}).")
-        if self.curr_tool_index != self.__class__.CAMERA_TOOL_INDEX:
-            self.pickup_tool(self.__class__.CAMERA_TOOL_INDEX)
+        if self.active_tool_index != self.__class__.CAMERA_TOOL_INDEX:
+            self.pickup_tool(self.__class__.CAMERA)
 
         if self.position[2] < self.safe_z:
             self.move_xyz_absolute(z=self.safe_z)
 
-        well_locations = ["starting_well_centroid",
-                          "first_row_last_col_well_centroid",
-                          "ending_well_centroid"]
         try:
             self.enable_live_video()
-            for key in well_locations:
-                x, y = self.deck_config['plates'][plate_index][key]
+            for x,y in self.deck_config['plates'][plate_index]['corner_well_centroids']:
                 if x is None or y is None:
                     raise UserInputError(f"Error: this reference position \
                         for deck plate {plate_index} is not defined.")
                 self.move_xy_absolute(x, y)
+                # TODO: adjust focus??
                 # TODO: implement adjustments in this situation?
                 self.input("Press any key to continue.")
         finally:
@@ -164,7 +215,7 @@ class SonicationStation(JubileeMotionController):
     def save_deck_config(self, file_path: str = "./config.json"):
         """Save the current configuration of plates on the deck to a file."""
         with open(file_path, 'w+') as config_file:
-            json.dump(self.deck_config, config_file)
+            json.dump(self.deck_config, config_file, indent=4)
             print(f"Saving configuration to {file_path}.")
 
 
@@ -175,7 +226,52 @@ class SonicationStation(JubileeMotionController):
 
 
     @cli_method
-    @machine_is_homed
+    @requires_safe_z
+    def setup_cleaning_station(self):
+        """Setup the cleaning station plates and procedure."""
+        # Helper function for splitting rows and cols of a well.
+        # https://stackoverflow.com/questions/13673781/splitting-a-string-where-it-switches-between-numeric-and-alphabetic-characters
+        def well_id_split(row_col_str):
+            return tuple(filter(None, re.split(r'(\d+)', row_col_str)))
+
+        cleaning_config = copy.deepcopy(self.__class__.BLANK_CLEANING_CONFIG)
+
+        # Move the machine down to make space for loading the cleaning plates.
+        self.move_xy_absolute()
+        # Prompt user to populate the machine with plates for cleaning.
+        try:
+            print("Cleaning Station Setup | Part 1: Plate Installation and Locating")
+            plate_count = int(self.input("Enter the number of plates used for cleaning."))
+            for plate_index in plate_count:
+                deck_index = int(self.input("Enter the deck index for this plate."))
+                cleaning_config["plates"].append(deck_index)
+                self.setup_plate(deck_index)
+            print("Cleaning Station Setup | Part 2: Bath Specs")
+            # Repeatedly prompt the user to define the visit order of each cleaning bath.
+            while True:
+                deck_index = self.input("Enter the deck index for the current bath.")
+                row, col = well_id_split(self.input("Enter the well location of the bath (i.e: A1, B2, etc.)."))
+                plunge_depth = self.input("Enter the sonicator plunge depth in mm.")
+                plunge_time = float(self.input("Enter the time (in seconds) to activate the sonicator."))
+                cmd = {"operation": "sonicate_well",
+                       "specs": {"deck_index": deck_index,
+                                 "row_letter": row,
+                                 "column_index": col,
+                                 "plunge_depth": plunge_depth,
+                                 "seconds": plunge_time,
+                                 "clean": False}} # Do not set to True, or infinite recursion.
+                cleaning_config["protocol"].append(cmd)
+                user_response = self.input("Add another bathing cycle? [y/n]")
+                if user_response.lower() not in ['y', 'yes']:
+                    break
+
+            self.deck_config['cleaning_config'] = cleaning_config
+        except KeyboardInterrupt:
+            print("Aborting Cleaning Configuration without saving changes.")
+
+
+    @cli_method
+    @requires_safe_z
     def setup_plate(self, deck_index: int = None, well_count: int = None,
                     plate_loaded: bool = False):
         """Configure the plate type and location."""
@@ -185,16 +281,24 @@ class SonicationStation(JubileeMotionController):
                 self.completions = list(map(str,range(self.__class__.DECK_PLATE_COUNT)))
                 deck_index = int(self.input(f"Enter deck index: "))
 
-            # TODO: ask for the plate type with an enum.
+            # Issue warning if this plate already exists. Bail if they cancel.
+            if deck_index in self.deck_config['plates']:
+                self.completions = ["y", "n"]
+                response = self.input(f"Warning: configuration for deck slot {deck_index} already exists. "
+                                      "Continuing will override the current config. Continue? [y/n]")
+                if plate_loaded.lower() not in ["y", "yes"]:
+                    return
+
+            # TODO: ask for the plate type with an enum instead of by well count.
             if well_count is None:
-                self.completions = ["6", "48", "96"]
+                self.completions = list(map(str, self.__class__.WELL_COUNT_TO_ROWS.keys()))
                 well_count = int(self.input(f"Enter number of wells: "))
-            self.deck_config['plates'][deck_index]["well_count"] = well_count
 
             self.completions = ["y", "n"]
             plate_loaded = self.input("Is the plate already loaded on deck slot "
                                       f"{deck_index}?")
             if plate_loaded.lower() not in ["y", "yes"]:
+                # Move out of the way and let the user load the plate.
                 self.move_xy_absolute(0,0)
                 self.input("Please load the plate in deck slot {deck_index}. "
                            "Press any key when ready.")
@@ -203,8 +307,9 @@ class SonicationStation(JubileeMotionController):
             last_row_letter = chr(row_count + 65 - 1)
 
             self.enable_live_video()
+            if self.position[2] < self.safe_z:
+                self.move_xyz_absolute(z=self.safe_z)
             self.pickup_tool(self.__class__.CAMERA_TOOL_INDEX)
-            self.move_xyz_absolute()
             self.input("Commencing manual zeroing. Press any key when ready or 'CTRL-C' to abort")
             self.keyboard_control(prompt="Center the camera over well position A1. " \
                                   "Press 'q' to set the teach point or 'CTRL-C' to abort.")
@@ -220,10 +325,12 @@ class SonicationStation(JubileeMotionController):
                 f"Center the camera over well position {last_row_letter}{row_count}. "
                 "Press 'q' to set the teach point or 'CTRL-C' to abort.")
             teach_points.append(self.position[0:2])
-            # Save points at the end such that the user can abort at any time.
-            self.deck_config['plates'][deck_index]["starting_well_centroid"] = teach_points[0]
-            self.deck_config['plates'][deck_index]["first_row_last_col_well_centroid"] = teach_points[1]
-            self.deck_config['plates'][deck_index]["ending_well_centroid"] = teach_points[2]
+            # Save everything at the end such that the user can abort at any time.
+            self.deck_config['plates'][deck_index] = copy.deepcopy(self.__class__.BLANK_DECK_CONFIGURATION)
+            self.deck_config['plates'][deck_index]["well_count"] = well_count
+            self.deck_config['plates'][deck_index]["corner_well_centroids"][0] = teach_points[0]
+            self.deck_config['plates'][deck_index]["corner_well_centroids"][1] = teach_points[1]
+            self.deck_config['plates'][deck_index]["corner_well_centroids"][2] = teach_points[2]
         except KeyboardInterrupt:
             print("Aborting. Well locations not saved.")
         finally:
@@ -232,19 +339,17 @@ class SonicationStation(JubileeMotionController):
 
 
     @cli_method
-    @machine_is_homed
+    @protocol_method
+    @requires_safe_z
+    @requires_cleaning_station
     def sonicate_well(self, deck_index: int, row_letter: str, column_index: int,
-                      plunge_depth: int, seconds: float):
-        """Sonicate one plate well at a specified depth for a given time."""
-        # Check prerequisites.
-        if self.safe_z is None:
-            raise UserInputError("Error: safe Z height for XY travel moves "
-                                 "must first be defined.")
+                      plunge_depth: int, seconds: float, clean: bool = True):
+        """Sonicate one well at a specified depth for a given time. Then clean the tip."""
         # Sanity check that we're not plunging too deep. Plunge depth is relative.
         if z - plunge_depth < 0:
             raise UserInputError("Error: plunge depth is too deep.")
 
-        if self.curr_tool_index != self.__class__.SONICATOR_TOOL_INDEX:
+        if self.active_tool_index != self.__class__.SONICATOR_TOOL_INDEX:
             self.pickup_tool(self.__class__.SONICATOR_TOOL_INDEX)
 
         row_index = ord(row_letter.upper()) - 65 # map row letters to numbers.
@@ -255,18 +360,23 @@ class SonicationStation(JubileeMotionController):
         _, _, z = self.position
         self.move_xyz_absolute(z=(z - plunge_depth), wait=True)
         print(f"sonicating for {seconds} seconds!!")
-        self.sonicator.sonicate(seconds) # TODO: maybe slow this down?
-        self.move_xy_absolute() # safe height.
+        self.sonicator.sonicate(seconds)
+        self.move_xy_absolute() # leave the machine at the safe height.
+        if clean:
+            self.clean_sonicator()
 
 
     @cli_method
-    def clean_sonicator(self, bath_time: int = CLEANING_TIME_S):
-        """Run the sonicator through the baths."""
-        for x,y in self.cleaning_vile_locations:
-            self.move_xy_absolute(x, y)
-            self.move_xyz_absolute(z) # TODO: maybe slow this down?
-            self.sonicator.sonicate(seconds) # TODO: maybe slow this down?
-            self.move_xy_absolute() # safe height.
+    @protocol_method
+    @requires_safe_z
+    @requires_cleaning_station
+    def clean_sonicator(self):
+        """Run the sonicator through the cleaning protocol."""
+        for cmd in cleaning_step:
+            if cmd['operation'] not in self.protocol_methods:
+                raise UserInputError(f"Error. Method cmd['name'] is not a method that can be used in a protocol.")
+            kwargs = cmd['specs']
+            self.sonicate_well(**kwargs)
 
 
     def enable_live_video(self):
@@ -296,9 +406,9 @@ class SonicationStation(JubileeMotionController):
                               f"is out of bounds for a plate with {row_count} rows "
                               f"and {col_count} columns.")
 
-        a = self.deck_config['plates'][deck_index]["starting_well_centroid"]
-        b = self.deck_config['plates'][deck_index]["first_row_last_col_well_centroid"]
-        c = self.deck_config['plates'][deck_index]["ending_well_centroid"]
+        a = self.deck_config['plates'][deck_index]["corner_well_centroids"][0]
+        b = self.deck_config['plates'][deck_index]["corner_well_centroids"][1]
+        c = self.deck_config['plates'][deck_index]["corner_well_centroids"][2]
 
         plate_width = sqrt((b[0] - a[0])**2 + (b[1] - a[1])**2)
         plate_height = sqrt((c[0] - b[0])**2 + (c[1] - b[1])**2)
