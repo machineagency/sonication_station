@@ -244,50 +244,65 @@ class SonicationStation(JubileeMotionController):
 
 
     @cli_method
-    @requires_safe_z
     def setup_cleaning_station(self):
         """Setup the cleaning station plates and procedure.
         Part 1: Define sections of the bed dedicated to cleaning glassware.
         Part 2: Define a protocol (series of sonications) for cleaning.
         """
+        try:
+            print("Cleaning Station Setup | Part 1: Plate Installation and Locating")
+            self.setup_cleaning_inventory()
+            print("Cleaning Station Setup | Part 2: Bath Specs")
+            self.setup_cleaning_protocol()
+        except KeyboardInterrupt:
+            print("Aborting Cleaning Configuration without saving changes.")
+
+
+    @cli_method
+    @requires_safe_z
+    def setup_cleaning_inventory(self):
+        """Setup plates for cleaning."""
+
+        # Prompt user to populate the machine with plates for cleaning.
+        plate_count = int(self.input("Enter the number of plates used for cleaning: "))
+        for plate_index in range(plate_count):
+            deck_index = int(self.input("Enter the deck index for this plate (i.e: 0, 1, .. 5): "))
+            cleaning_config["plates"].append(deck_index)
+            self.setup_plate(deck_index)
+
+
+    @cli_method
+    @requires_safe_z
+    def setup_cleaning_protocol(self):
+        """Setup a series of washes with glassware on the available plates."""
+
         # Helper function for splitting rows and cols of a well.
         # https://stackoverflow.com/questions/13673781/splitting-a-string-where-it-switches-between-numeric-and-alphabetic-characters
         def well_id_split(row_col_str):
             return tuple(filter(None, re.split(r'(\d+)', row_col_str)))
 
-        cleaning_config = copy.deepcopy(self.__class__.BLANK_CLEANING_CONFIG)
+        protocol = []
+        # Repeatedly prompt the user to define the visit order of each cleaning bath.
+        while True:
+            deck_index = int(self.input("Enter the deck index for the current bath (i.e: 0, 1, 2, etc.): "))
+            row, col_str = well_id_split(self.input("Enter the well location of the bath (i.e: A1, B2, etc.): "))
+            col = int(col_str)
+            plunge_depth = float(self.input("Enter the sonicator plunge depth in mm.\r\n"
+                                      "Plunge depth is the distance measured from the top of the plate: "))
+            plunge_time = float(self.input("Enter the time (in seconds) to activate the sonicator: "))
+            cmd = {"operation": "sonicate_well",
+                   "specs": {"deck_index": deck_index,
+                             "row_letter": row,
+                             "column_index": col,
+                             "plunge_depth": plunge_depth,
+                             "seconds": plunge_time,
+                             "clean": False}} # Do not set to True or infinite recursion.
+            protocol.append(cmd)
+            user_response = self.input("Add another bathing cycle? [y/n]")
+            if user_response.lower() not in ['y', 'yes']:
+                break
 
-        # Prompt user to populate the machine with plates for cleaning.
-        try:
-            print("Cleaning Station Setup | Part 1: Plate Installation and Locating")
-            plate_count = int(self.input("Enter the number of plates used for cleaning: "))
-            for plate_index in range(plate_count):
-                deck_index = int(self.input("Enter the deck index for this plate (i.e: 0, 1, .. 5): "))
-                cleaning_config["plates"].append(deck_index)
-                self.setup_plate(deck_index)
-            print("Cleaning Station Setup | Part 2: Bath Specs")
-            # Repeatedly prompt the user to define the visit order of each cleaning bath.
-            while True:
-                deck_index = int(self.input("Enter the deck index for the current bath (i.e: 0, 1, 2, etc.): "))
-                row, col = well_id_split(self.input("Enter the well location of the bath (i.e: A1, B2, etc.): "))
-                plunge_depth = self.input("Enter the sonicator plunge depth in mm.\r\n"
-                                          "Plunge depth is the distance measured from the top of the plate: ")
-                plunge_time = float(self.input("Enter the time (in seconds) to activate the sonicator: "))
-                cmd = {"operation": "sonicate_well",
-                       "specs": {"deck_index": deck_index,
-                                 "row_letter": row,
-                                 "column_index": col,
-                                 "plunge_depth": plunge_depth,
-                                 "seconds": plunge_time,
-                                 "clean": False}} # Do not set to True or infinite recursion.
-                cleaning_config["protocol"].append(cmd)
-                user_response = self.input("Add another bathing cycle? [y/n]")
-                if user_response.lower() not in ['y', 'yes']:
-                    break
-
-            self.deck_config['cleaning_config'] = cleaning_config
-        except KeyboardInterrupt:
-            print("Aborting Cleaning Configuration without saving changes.")
+        self.deck_config['cleaning_config']['protocol'] = protocol
 
 
     @cli_method
@@ -330,9 +345,9 @@ class SonicationStation(JubileeMotionController):
             # Ask if plate is loaded if the user didn't input it.
             if plate_loaded is None:
                 plate_loaded = False
-                self.completions = ["y", "n"]
+                self.completions = ['y', 'n']
                 response = self.input(f"Is the plate already loaded on deck slot {deck_index}? ")
-                if response.lower() in self.completions:
+                if response.lower() in ['y', 'yes']:
                     plate_loaded = True
 
             # If plate note loaded, move out of the way and let the user load the plate.
@@ -396,15 +411,16 @@ class SonicationStation(JubileeMotionController):
     @requires_safe_z
     @requires_cleaning_station
     def sonicate_well(self, deck_index: int, row_letter: str, column_index: int,
-                      plunge_depth: int, seconds: float, clean: bool = True):
+                      plunge_depth: float, seconds: float, clean: bool = True):
         """Sonicate one well at a specified depth for a given time. Then clean the tip."""
 
         # Json dicts enforce that keys must be strings.
         deck_index_str = str(deck_index)
 
         plate_height = self.deck_config['plates'][deck_index_str]['plate_height']
+        plunge_height = plate_height - plunge_depth
         # Sanity check that we're not plunging too deep. Plunge depth is relative.
-        if plate_height - plunge_depth < 0:
+        if plunge_height < 0:
             raise UserInputError("Error: plunge depth is too deep.")
 
         if self.active_tool_index != self.__class__.SONICATOR_TOOL_INDEX:
@@ -413,10 +429,9 @@ class SonicationStation(JubileeMotionController):
         row_index = ord(row_letter.upper()) - 65 # map row letters to numbers.
         x,y = self._get_well_position(deck_index, row_index, column_index)
 
-        print(f"Sonicating at: ({x}, {y})")
+        print(f"Sonicating at: ({x:.3f}, {y:.3f})")
         self.move_xy_absolute(x,y) # Position over the well at safe z height.
-        _, _, z = self.position
-        self.move_xyz_absolute(z=(z - plunge_depth), wait=True)
+        self.move_xyz_absolute(z=plunge_height, wait=True)
         print(f"sonicating for {seconds} seconds!!")
         self.sonicator.sonicate(seconds)
         self.move_xy_absolute() # leave the machine at the safe height.
@@ -442,11 +457,12 @@ class SonicationStation(JubileeMotionController):
 
     def execute_protocol(self, protocol):
         """Execute a list of protocol commands."""
-        for cmd in cleaning_step:
+        for cmd in protocol:
             if cmd['operation'] not in self.protocol_methods:
                 raise UserInputError(f"Error. Method cmd['name'] is not a method that can be used in a protocol.")
             fn = self.protocol_methods[cmd['operation']]
             kwargs = cmd['specs']
+            kwargs['self'] = self
             fn(**kwargs)
 
 
