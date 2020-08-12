@@ -67,7 +67,7 @@ class SonicationStation(JubileeMotionController):
     BLANK_DECK_CONFIGURATION = \
         {"plates": {},              # plate type and location, keyed by deck index in str format.
          "safe_z": None,            # retract height before moving around in XY.
-         "cleaning_config": None    # specs and protocol for cleaning.
+         "cleaning_config": {}    # specs and protocol for cleaning.
         }
 
     BLANK_DECK_PLATE_CONFIG = \
@@ -106,8 +106,11 @@ class SonicationStation(JubileeMotionController):
             try:
                 self.load_deck_config(deck_config_filepath)
             except FileNotFoundError:
-                print("Could not load deck plate configuration from: "
-                      f"{deck_config_filepath}")
+                print(f"Could not load deck plate configuration from: {deck_config_filepath}. "
+                      "No file present.")
+            except json.decoder.JSONDecodeError:
+                print(f"Error parsing the configuration from: {deck_config_filepath}. "
+                       "File could have formatted incorrectly.")
 
         self.protocol_methods = self._collect_protocol_methods()
         self.sonicator = Sonicator()
@@ -191,7 +194,7 @@ class SonicationStation(JubileeMotionController):
 
     @cli_method
     @requires_safe_z
-    def check_plate_registration_points(self, plate_index: int = 0):
+    def check_plate_registration_points(self, plate_index: int):
         """Move to predefined starting location for deck plate."""
         if plate_index < 0 or plate_index >= self.__class__.DECK_PLATE_COUNT:
             raise UserInputError(f"Error: deck plates must fall \
@@ -246,25 +249,9 @@ class SonicationStation(JubileeMotionController):
         Part 2: Define a protocol (series of sonications) for cleaning.
         """
         try:
-            print("Cleaning Station Setup | Part 1: Plate Installation and Locating")
-            self.setup_cleaning_inventory()
-            print("Cleaning Station Setup | Part 2: Bath Specs")
             self.setup_cleaning_protocol()
         except KeyboardInterrupt:
             print("Aborting Cleaning Configuration without saving changes.")
-
-
-    @cli_method
-    @requires_safe_z
-    def setup_cleaning_inventory(self):
-        """Setup plates for cleaning."""
-
-        # Prompt user to populate the machine with plates for cleaning.
-        plate_count = int(self.input("Enter the number of plates used for cleaning: "))
-        for plate_index in range(plate_count):
-            deck_index = int(self.input("Enter the deck index for this plate (i.e: 0, 1, .. 5): "))
-            cleaning_config["plates"].append(deck_index)
-            self.setup_plate(deck_index)
 
 
     @cli_method
@@ -278,27 +265,47 @@ class SonicationStation(JubileeMotionController):
             return tuple(filter(None, re.split(r'(\d+)', row_col_str)))
 
         protocol = []
-        # Repeatedly prompt the user to define the visit order of each cleaning bath.
-        while True:
-            deck_index = int(self.input("Enter the deck index for the current bath (i.e: 0, 1, 2, etc.): "))
-            row, col_str = well_id_split(self.input("Enter the well location of the bath (i.e: A1, B2, etc.): "))
-            col = int(col_str)
-            plunge_depth = float(self.input("Enter the sonicator plunge depth in mm.\r\n"
-                                      "Plunge depth is the distance measured from the top of the plate: "))
-            plunge_time = float(self.input("Enter the time (in seconds) to activate the sonicator: "))
-            cmd = {"operation": "sonicate_well",
-                   "specs": {"deck_index": deck_index,
-                             "row_letter": row,
-                             "column_index": col,
-                             "plunge_depth": plunge_depth,
-                             "seconds": plunge_time,
-                             "clean": False}} # Do not set to True or infinite recursion.
-            protocol.append(cmd)
-            user_response = self.input("Add another bathing cycle? [y/n]")
-            if user_response.lower() not in ['y', 'yes']:
-                break
-
+        deck_plates = set() # Any plates used in the process of cleaning.
+        try:
+            # Repeatedly prompt the user to define the visit order of each cleaning bath.
+            while True:
+                deck_index = int(self.input("Enter the deck index for the current bath (i.e: 0, 1, 2, etc.): "))
+                # Save any newly encountered deck plates while performing this operation.
+                if deck_index not in deck_plates:
+                    deck_plates.add(deck_index)
+                row, col_str = well_id_split(self.input("Enter the well location of the bath (i.e: A1, B2, etc.): "))
+                col = int(col_str)
+                plunge_depth = float(self.input("Enter the sonicator plunge depth in mm.\r\n"
+                                          "Plunge depth is the distance measured from the top of the plate: "))
+                plunge_time = float(self.input("Enter the time (in seconds) to activate the sonicator: "))
+                # This cmd should match the function name and parameters of sonicate_well.
+                cmd = {"operation": "sonicate_well",
+                       "specs": {"deck_index": deck_index,
+                                 "row_letter": row,
+                                 "column_index": col,
+                                 "plunge_depth": plunge_depth,
+                                 "seconds": plunge_time,
+                                 "clean": False}} # Do not set to True or infinite recursion.
+                protocol.append(cmd)
+                user_response = self.input("Add another bathing cycle? [y/n]")
+                if user_response.lower() not in ['y', 'yes']:
+                    break
+        except KeyboardInterrupt:
+            print("Aborting without saving.")
+            return
+        # Save the protocol at the end so the user can abort at any time.
+        print("Saving Cleaning Protocol.")
         self.deck_config['cleaning_config']['protocol'] = protocol
+
+        # Ask user if they want to setup any undefined deck plates.
+        unsetup_deck_plates = [p for p in deck_plates if str(p) not in self.deck_config['plates']]
+        if len(unsetup_deck_plates) > 0:
+            user_response = self.input("The following plates have not yet been added to the deck inventory: "
+                                       f"{unsetup_deck_plates}.\r\nWould you like to set them up now?")
+            if user_response.lower() in ["y", "yes"]:
+                for plate_index in unsetup_deck_plates:
+                    print(f"Setting up plate {plate_index}:")
+                    self.setup_plate(plate_index)
 
 
     @cli_method

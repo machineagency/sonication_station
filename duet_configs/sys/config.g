@@ -71,4 +71,4 @@ M563 P0 S"Camera"                    ; Define tool 0
 G10 P0 Y44 Z-20                          ; Set tool 0 offset from the bed. These will be different for everyone.
 
 M563 P1 S"Sonicator"                      ; Define tool 1
-G10 P1 Y37 Z-150                           ; Set tool 1 offset from the bed. These will be different for everyone.
+G10 P1 Y37 Z-155                           ; Set tool 1 offset from the bed. These will be different for everyone.
