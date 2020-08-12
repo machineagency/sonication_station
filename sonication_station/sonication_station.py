@@ -65,7 +65,7 @@ class SonicationStation(JubileeMotionController):
 
     # Blank Configuration Template
     BLANK_DECK_CONFIGURATION = \
-        {"plates": {},              # plate type and location, keyed by deck index.
+        {"plates": {},              # plate type and location, keyed by deck index in str format.
          "safe_z": None,            # retract height before moving around in XY.
          "cleaning_config": None    # specs and protocol for cleaning.
         }
@@ -116,6 +116,7 @@ class SonicationStation(JubileeMotionController):
         self.protocol_methods = self._collect_protocol_methods()
         self.sonicator = Sonicator()
         self.cam_feed_process = None
+        self.discarded_cam_output = None
 
     def _collect_protocol_methods(self):
         """Collect all protocol methods decorated with the correpsonding decorator.
@@ -175,6 +176,12 @@ class SonicationStation(JubileeMotionController):
         if self.safe_z is not None:
             super().move_xyz_absolute(z=self.safe_z, wait=wait)
         super().move_xyz_absolute(x,y,wait=wait)
+
+    @cli_method
+    def park_tool(self):
+        """Park the current tool, but move up to safe_z height first"""
+        self.move_xy_absolute()
+        super().park_tool()
 
 
     @cli_method
@@ -286,31 +293,50 @@ class SonicationStation(JubileeMotionController):
     @cli_method
     @requires_safe_z
     def setup_plate(self, deck_index: int = None, well_count: int = None,
-                    plate_loaded: bool = False):
+                    plate_loaded: bool = None):
         """Configure the plate type and location."""
-        teach_points = []
+
+        old_plate_config = None
         try:
+            # Ask for deck index if the user didn't input it.
             if deck_index is None:
                 self.completions = list(map(str,range(self.__class__.DECK_PLATE_COUNT)))
                 deck_index = int(self.input(f"Enter deck index: "))
 
-            # Issue warning if this plate already exists. Bail if they cancel.
-            if deck_index in self.deck_config['plates']:
+            # Json dicts enforce that keys must be strings.
+            deck_index_str = str(deck_index)
+
+            # Check for existing plate config.
+            if deck_index_str in self.deck_config['plates']:
+                # Issue warning if this plate already exists. Bail if they cancel.
                 self.completions = ["y", "n"]
                 response = self.input(f"Warning: configuration for deck slot {deck_index} already exists. "
                                       "Continuing will override the current config. Continue? [y/n]: ")
-                if plate_loaded.lower() not in ["y", "yes"]:
+                if response.lower() not in ["y", "yes"]:
                     return
+                # Save a local copy so we can restore it if the user aborts.
+                old_plate_config = copy.deepcopy(self.deck_config['plates'][deck_index_str])
 
+            # Create a new deck configuration from scratch.
+            self.deck_config['plates'][deck_index_str] = copy.deepcopy(self.__class__.BLANK_DECK_PLATE_CONFIG)
+
+            # Ask for well count (plate type) if the user didn't input it.
             # TODO: ask for the plate type with an enum instead of by well count.
             if well_count is None:
                 self.completions = list(map(str, self.__class__.WELL_COUNT_TO_ROWS.keys()))
                 well_count = int(self.input(f"Enter number of wells: "))
+            self.deck_config['plates'][deck_index_str]['well_count'] = well_count
 
-            self.completions = ["y", "n"]
-            plate_loaded = self.input(f"Is the plate already loaded on deck slot {deck_index}? ")
-            if plate_loaded.lower() not in ["y", "yes"]:
-                # Move out of the way and let the user load the plate.
+            # Ask if plate is loaded if the user didn't input it.
+            if plate_loaded is None:
+                plate_loaded = False
+                self.completions = ["y", "n"]
+                response = self.input(f"Is the plate already loaded on deck slot {deck_index}? ")
+                if response.lower() in self.completions:
+                    plate_loaded = True
+
+            # If plate note loaded, move out of the way and let the user load the plate.
+            if not plate_loaded:
                 self.move_xy_absolute(0,0)
                 self.input(f"Please load the plate in deck slot {deck_index}. "
                            "Press Enter when finished.")
@@ -323,26 +349,28 @@ class SonicationStation(JubileeMotionController):
             # Move such that the well plates are in focus.
             self.move_xyz_absolute(z=(self.safe_z + self.__class__.CAMERA_FOCAL_LENGTH_OFFSET))
             self.pickup_tool(self.__class__.CAMERA_TOOL_INDEX)
+
+            # Collect three "teach points" for this plate.
             self.input("Commencing manual zeroing. Press Enter when ready or 'CTRL-C' to abort")
             self.keyboard_control(prompt="Center the camera over well position A1. " \
                                   "Press 'q' to set the teach point or 'CTRL-C' to abort.")
-            teach_points.append(self.position[0:2])
+            self.deck_config['plates'][deck_index_str]['corner_well_centroids'][0] = self.position[0:2]
 
             self.input("Commencing manual zeroing. Press Enter when ready or 'CTRL-C' to abort.")
             self.keyboard_control(prompt=
                 f"Center the camera over well position A{row_count}")
-            teach_points.append(self.position[0:2])
+            self.deck_config['plates'][deck_index_str]['corner_well_centroids'][1] = self.position[0:2]
 
             self.input("Commencing manual zeroing. Press Enter when ready or CTRL-C to abort.")
             self.keyboard_control(prompt=
                 f"Center the camera over well position {last_row_letter}{row_count}. "
                 "Press 'q' to set the teach point or 'CTRL-C' to abort.")
-            teach_points.append(self.position[0:2])
+            self.deck_config['plates'][deck_index_str]['corner_well_centroids'][2] = self.position[0:2]
             self.disable_live_video()
 
             # PART 2: Define the plate height with the sonicator.
             self.pickup_tool(self.__class__.SONICATOR_TOOL_INDEX)
-            x,y = self._get_well_position(deck_index, 0, 0)
+            x,y = self._get_well_position(deck_index, 0, 0) # Relies on teach points being set already.
             self.move_xy_absolute(x,y)
             self.input("In the next step, we will set the reference point from where the "
                        "plunge depth is measured. This is the topmost surface of the plate.\r\n"
@@ -351,15 +379,12 @@ class SonicationStation(JubileeMotionController):
                 "Move the sonicator tip to a height where it just clears the plate. " \
                 "Press 'q' to set the teach point or 'CTRL-C' to abort.")
             _,_,plate_height = self.position
-            # Save everything at the end such that the user can abort at any time.
-            self.deck_config['plates'][deck_index] = copy.deepcopy(self.__class__.BLANK_DECK_PLATE_CONFIG)
-            self.deck_config['plates'][deck_index]['well_count'] = well_count
-            self.deck_config['plates'][deck_index]['plate_height'] = plate_height 
-            self.deck_config['plates'][deck_index]['corner_well_centroids'][0] = teach_points[0]
-            self.deck_config['plates'][deck_index]['corner_well_centroids'][1] = teach_points[1]
-            self.deck_config['plates'][deck_index]['corner_well_centroids'][2] = teach_points[2]
+            self.deck_config['plates'][deck_index_str]['plate_height'] = plate_height
         except KeyboardInterrupt:
             print("Aborting. Well locations not saved.")
+            # Restore previous copy.
+            if old_plate_config:
+                self.deck_config['plates'][deck_index_str] = old_plate_config
         finally:
             self.disable_live_video()
         self.move_xy_absolute() # Move up to the safe_z
@@ -373,7 +398,11 @@ class SonicationStation(JubileeMotionController):
     def sonicate_well(self, deck_index: int, row_letter: str, column_index: int,
                       plunge_depth: int, seconds: float, clean: bool = True):
         """Sonicate one well at a specified depth for a given time. Then clean the tip."""
-        plate_height = self.deck_config['plates'][deck_index]['plate_height']
+
+        # Json dicts enforce that keys must be strings.
+        deck_index_str = str(deck_index)
+
+        plate_height = self.deck_config['plates'][deck_index_str]['plate_height']
         # Sanity check that we're not plunging too deep. Plunge depth is relative.
         if plate_height - plunge_depth < 0:
             raise UserInputError("Error: plunge depth is too deep.")
@@ -443,8 +472,12 @@ class SonicationStation(JubileeMotionController):
 
     def _get_well_position(self, deck_index: int, row_index: int, col_index: int):
         """Get the machine coordinates for the specified well plate index."""
-        # Note: we lookup well spacing from a built-in dict for now.
-        well_count = self.deck_config['plates'][deck_index]["well_count"]
+
+        # Json dicts enforce that keys must be strings.
+        deck_index_str = str(deck_index)
+
+        # Note: Lookup well spacing from a built-in dict for now.
+        well_count = self.deck_config['plates'][deck_index_str]["well_count"]
         row_count, col_count = self.__class__.WELL_COUNT_TO_ROWS[well_count]
 
         if row_index > (row_count - 1) or col_index > (col_count - 1):
@@ -452,9 +485,9 @@ class SonicationStation(JubileeMotionController):
                               f"is out of bounds for a plate with {row_count} rows "
                               f"and {col_count} columns.")
 
-        a = self.deck_config['plates'][deck_index]["corner_well_centroids"][0]
-        b = self.deck_config['plates'][deck_index]["corner_well_centroids"][1]
-        c = self.deck_config['plates'][deck_index]["corner_well_centroids"][2]
+        a = self.deck_config['plates'][deck_index_str]["corner_well_centroids"][0]
+        b = self.deck_config['plates'][deck_index_str]["corner_well_centroids"][1]
+        c = self.deck_config['plates'][deck_index_str]["corner_well_centroids"][2]
 
         plate_width = sqrt((b[0] - a[0])**2 + (b[1] - a[1])**2)
         plate_height = sqrt((c[0] - b[0])**2 + (c[1] - b[1])**2)
