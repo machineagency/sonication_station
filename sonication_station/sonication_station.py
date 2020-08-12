@@ -239,7 +239,10 @@ class SonicationStation(JubileeMotionController):
     @cli_method
     @requires_safe_z
     def setup_cleaning_station(self):
-        """Setup the cleaning station plates and procedure."""
+        """Setup the cleaning station plates and procedure.
+        Part 1: Define sections of the bed dedicated to cleaning glassware.
+        Part 2: Define a protocol (series of sonications) for cleaning.
+        """
         # Helper function for splitting rows and cols of a well.
         # https://stackoverflow.com/questions/13673781/splitting-a-string-where-it-switches-between-numeric-and-alphabetic-characters
         def well_id_split(row_col_str):
@@ -250,25 +253,26 @@ class SonicationStation(JubileeMotionController):
         # Prompt user to populate the machine with plates for cleaning.
         try:
             print("Cleaning Station Setup | Part 1: Plate Installation and Locating")
-            plate_count = int(self.input("Enter the number of plates used for cleaning."))
+            plate_count = int(self.input("Enter the number of plates used for cleaning: "))
             for plate_index in range(plate_count):
-                deck_index = int(self.input("Enter the deck index for this plate (i.e: 0, 1, .. 5)."))
+                deck_index = int(self.input("Enter the deck index for this plate (i.e: 0, 1, .. 5): "))
                 cleaning_config["plates"].append(deck_index)
                 self.setup_plate(deck_index)
             print("Cleaning Station Setup | Part 2: Bath Specs")
             # Repeatedly prompt the user to define the visit order of each cleaning bath.
             while True:
-                deck_index = self.input("Enter the deck index for the current bath (i.e: 0, 1, 2, etc.).")
-                row, col = well_id_split(self.input("Enter the well location of the bath (i.e: A1, B2, etc.)."))
-                plunge_depth = self.input("Enter the sonicator plunge depth in mm.")
-                plunge_time = float(self.input("Enter the time (in seconds) to activate the sonicator."))
+                deck_index = int(self.input("Enter the deck index for the current bath (i.e: 0, 1, 2, etc.): "))
+                row, col = well_id_split(self.input("Enter the well location of the bath (i.e: A1, B2, etc.): "))
+                plunge_depth = self.input("Enter the sonicator plunge depth in mm.\r\n"
+                                          "Plunge depth is the distance measured from the top of the plate: ")
+                plunge_time = float(self.input("Enter the time (in seconds) to activate the sonicator: "))
                 cmd = {"operation": "sonicate_well",
                        "specs": {"deck_index": deck_index,
                                  "row_letter": row,
                                  "column_index": col,
                                  "plunge_depth": plunge_depth,
                                  "seconds": plunge_time,
-                                 "clean": False}} # Do not set to True, or infinite recursion.
+                                 "clean": False}} # Do not set to True or infinite recursion.
                 cleaning_config["protocol"].append(cmd)
                 user_response = self.input("Add another bathing cycle? [y/n]")
                 if user_response.lower() not in ['y', 'yes']:
@@ -294,7 +298,7 @@ class SonicationStation(JubileeMotionController):
             if deck_index in self.deck_config['plates']:
                 self.completions = ["y", "n"]
                 response = self.input(f"Warning: configuration for deck slot {deck_index} already exists. "
-                                      "Continuing will override the current config. Continue? [y/n]")
+                                      "Continuing will override the current config. Continue? [y/n]: ")
                 if plate_loaded.lower() not in ["y", "yes"]:
                     return
 
@@ -304,46 +308,62 @@ class SonicationStation(JubileeMotionController):
                 well_count = int(self.input(f"Enter number of wells: "))
 
             self.completions = ["y", "n"]
-            plate_loaded = self.input(f"Is the plate already loaded on deck slot {deck_index}?")
+            plate_loaded = self.input(f"Is the plate already loaded on deck slot {deck_index}? ")
             if plate_loaded.lower() not in ["y", "yes"]:
                 # Move out of the way and let the user load the plate.
                 self.move_xy_absolute(0,0)
                 self.input(f"Please load the plate in deck slot {deck_index}. "
-                           "Press any key when ready.")
+                           "Press Enter when finished.")
 
             row_count, col_count = self.__class__.WELL_COUNT_TO_ROWS[well_count]
             last_row_letter = chr(row_count + 65 - 1)
 
+            # PART 1: Define the plate location with teach points.
             self.enable_live_video()
             # Move such that the well plates are in focus.
             self.move_xyz_absolute(z=(self.safe_z + self.__class__.CAMERA_FOCAL_LENGTH_OFFSET))
             self.pickup_tool(self.__class__.CAMERA_TOOL_INDEX)
-            self.input("Commencing manual zeroing. Press any key when ready or 'CTRL-C' to abort")
+            self.input("Commencing manual zeroing. Press Enter when ready or 'CTRL-C' to abort")
             self.keyboard_control(prompt="Center the camera over well position A1. " \
                                   "Press 'q' to set the teach point or 'CTRL-C' to abort.")
             teach_points.append(self.position[0:2])
 
-            self.input("Commencing manual zeroing. Press any key when ready or 'CTRL-C' to abort.")
+            self.input("Commencing manual zeroing. Press Enter when ready or 'CTRL-C' to abort.")
             self.keyboard_control(prompt=
                 f"Center the camera over well position A{row_count}")
             teach_points.append(self.position[0:2])
 
-            self.input("Commencing manual zeroing. Press any key when ready or CTRL-C to abort.")
+            self.input("Commencing manual zeroing. Press Enter when ready or CTRL-C to abort.")
             self.keyboard_control(prompt=
                 f"Center the camera over well position {last_row_letter}{row_count}. "
                 "Press 'q' to set the teach point or 'CTRL-C' to abort.")
             teach_points.append(self.position[0:2])
+            self.disable_live_video()
+
+            # PART 2: Define the plate height with the sonicator.
+            self.pickup_tool(self.__class__.SONICATOR_TOOL_INDEX)
+            x,y = self._get_well_position(deck_index, 0, 0)
+            self.move_xy_absolute(x,y)
+            self.input("In the next step, we will set the reference point from where the "
+                       "plunge depth is measured. This is the topmost surface of the plate.\r\n"
+                       "Press Enter when ready.")
+            self.keyboard_control(prompt=
+                "Move the sonicator tip to a height where it just clears the plate. " \
+                "Press 'q' to set the teach point or 'CTRL-C' to abort.")
+            _,_,plate_height = self.position
             # Save everything at the end such that the user can abort at any time.
             self.deck_config['plates'][deck_index] = copy.deepcopy(self.__class__.BLANK_DECK_PLATE_CONFIG)
-            self.deck_config['plates'][deck_index]["well_count"] = well_count
-            self.deck_config['plates'][deck_index]["corner_well_centroids"][0] = teach_points[0]
-            self.deck_config['plates'][deck_index]["corner_well_centroids"][1] = teach_points[1]
-            self.deck_config['plates'][deck_index]["corner_well_centroids"][2] = teach_points[2]
+            self.deck_config['plates'][deck_index]['well_count'] = well_count
+            self.deck_config['plates'][deck_index]['plate_height'] = plate_height 
+            self.deck_config['plates'][deck_index]['corner_well_centroids'][0] = teach_points[0]
+            self.deck_config['plates'][deck_index]['corner_well_centroids'][1] = teach_points[1]
+            self.deck_config['plates'][deck_index]['corner_well_centroids'][2] = teach_points[2]
         except KeyboardInterrupt:
             print("Aborting. Well locations not saved.")
         finally:
             self.disable_live_video()
-            self.park_tool()
+        self.move_xy_absolute() # Move up to the safe_z
+        self.park_tool()
 
 
     @cli_method
@@ -353,8 +373,9 @@ class SonicationStation(JubileeMotionController):
     def sonicate_well(self, deck_index: int, row_letter: str, column_index: int,
                       plunge_depth: int, seconds: float, clean: bool = True):
         """Sonicate one well at a specified depth for a given time. Then clean the tip."""
+        plate_height = self.deck_config['plates'][deck_index]['plate_height']
         # Sanity check that we're not plunging too deep. Plunge depth is relative.
-        if z - plunge_depth < 0:
+        if plate_height - plunge_depth < 0:
             raise UserInputError("Error: plunge depth is too deep.")
 
         if self.active_tool_index != self.__class__.SONICATOR_TOOL_INDEX:
