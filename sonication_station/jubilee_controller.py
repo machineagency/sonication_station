@@ -31,8 +31,7 @@ class JubileeMotionController(Inpromptu):
     MM_BUFFER_SIZE = 131072
     SUBSCRIBE_MODE = "Full"
 
-    MOVE_TIMEOUT_S = 10
-    TIMEOUT_S = 10 # a general timeout
+    TIMEOUT_S = 15 # a general timeout
 
     EPSILON = 0.01
 
@@ -85,6 +84,19 @@ class JubileeMotionController(Inpromptu):
         """Thread worker for periodically updating the machine model."""
         if self.simulated:
             return
+
+        def parse_string_buffer_into_dicts(packet_buffer_str):
+            """Split multiple serialized json dicts into separate dicts."""
+            packets = [e+"}" if e.startswith("{") and not e.endswith("}") else \
+                       "{"+e if e.endswith("}") and not e.startswith("{") else \
+                       e for e in packet_buffer_str.split("}{")]
+            if packets[0] == "":
+                return []
+            packet_dicts = []
+            while packets:
+                packet_dicts.append(json.loads(packets.pop(0)))
+            return packet_dicts
+
         # Subscribe to machine model updates
         subscribe_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         #subscribe_socket.settimeout(5)
@@ -102,10 +114,21 @@ class JubileeMotionController(Inpromptu):
                       #"subscriptionMode": "Patch"}).encode()
                       "subscriptionMode": self.__class__.SUBSCRIBE_MODE}).encode()
         subscribe_socket.sendall(j)
-        # Do the first update.
-        r = subscribe_socket.recv(self.__class__.MM_BUFFER_SIZE).decode()
-        with Lock(): # Lock access to the machine model.
-            self.machine_model.update(json.loads(r))
+        # Do the first update. Handle first message which contains the connection status.
+        packet_buffer_str = ""
+        try:
+            packet_buffer_str = subscribe_socket.recv(self.__class__.MM_BUFFER_SIZE).decode()
+        except json.decoder.JSONDecodeError:
+            raise RuntimeError("Error decoding connection status message.")
+        # Received data could be multiple serialized json objects. Handle each of them.
+        # Split into separate strings then dicts.
+        packets = parse_string_buffer_into_dicts(packet_buffer_str)
+        connection_status = packets.pop(0)
+        if connection_status['success'] != True:
+            raise RuntimeError("Failed to connect to machine.")
+        with Lock(): # Lock access to the machine model before updating it.
+            while packets:
+                self.machine_model.update(packets.pop(0))
         # Do scheduled updates on a loop.
         while self.keep_subscribing:
             #print(f"thread woke up at {time.perf_counter()}")
@@ -118,14 +141,21 @@ class JubileeMotionController(Inpromptu):
             #       packets need a big buffer.
             start_time = time.perf_counter()
             try:
-                r = subscribe_socket.recv(self.__class__.MM_BUFFER_SIZE).decode()
+                packet_buffer_str = subscribe_socket.recv(self.__class__.MM_BUFFER_SIZE).decode()
             except json.decoder.JSONDecodeError:
                 print("Buffer too small!")
+            packets = parse_string_buffer_into_dicts(packet_buffer_str)
             with Lock(): # Lock access to the machine model.
-                    self.machine_model.update(json.loads(r))
+            # TODO: we need a recursive update here for Patch mode.
+                while packets:
+                    try:
+                        next_packet = packets.pop(0)
+                        self.machine_model.update(next_packet)
+                    except ValueError:
+                        print(next_packet)
+                        print()
             if self.debug:
                 print(f"lock + receive delay: {time.perf_counter() - start_time}")
-            # TODO: we need a recursive update here for Patch mode.
             # Sleep until next scheduled update time.
             if self.debug:
                 print(f"loop time: {time.perf_counter() - loop_start}")
@@ -236,7 +266,7 @@ class JubileeMotionController(Inpromptu):
         x_movement = f"X{x} " if x is not None else ""
         y_movement = f"Y{y} " if y is not None else ""
         z_movement = f"Z{z} " if z is not None else ""
-        self.gcode(f"G0 {x_movement}{y_movement}{z_movement}F10000")
+        self.gcode(f"G0 {x_movement}{y_movement}{z_movement}F13000")
 
         if not wait:
             return
@@ -395,6 +425,7 @@ class JubileeMotionController(Inpromptu):
             curses.echo()
             curses.endwin()
             self._set_absolute_moves(force=True)
+
 
     def wait_until_idle(self, timeout = TIMEOUT_S):
         start_wait_time = time.perf_counter()
