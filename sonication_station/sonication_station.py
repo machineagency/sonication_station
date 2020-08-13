@@ -57,6 +57,10 @@ class SonicationStation(JubileeMotionController):
                            12: (3, 4)}
     DECK_PLATE_COUNT = 6
 
+    # TODO: use these later to rapid to the well corner during plate locating.
+    # Derived from CAD model.
+    NOMINAL_WELL_CORNERS = [(), (), (), (), (),()]
+
     CAMERA_FOCAL_LENGTH_OFFSET = 19
 
     # TODO: this info should be read from the machine model.
@@ -243,18 +247,6 @@ class SonicationStation(JubileeMotionController):
 
 
     @cli_method
-    def setup_cleaning_station(self):
-        """Setup the cleaning station plates and procedure.
-        Part 1: Define sections of the bed dedicated to cleaning glassware.
-        Part 2: Define a protocol (series of sonications) for cleaning.
-        """
-        try:
-            self.setup_cleaning_protocol()
-        except KeyboardInterrupt:
-            print("Aborting Cleaning Configuration without saving changes.")
-
-
-    @cli_method
     @requires_safe_z
     def setup_cleaning_protocol(self):
         """Setup a series of washes with glassware on the available plates."""
@@ -387,6 +379,7 @@ class SonicationStation(JubileeMotionController):
             self.disable_live_video()
 
             # PART 2: Define the plate height with the sonicator.
+            self.move_xy_absolute() # Safe Z
             self.pickup_tool(self.__class__.SONICATOR_TOOL_INDEX)
             x,y = self._get_well_position(deck_index, 0, 0) # Relies on teach points being set already.
             self.move_xy_absolute(x,y)
@@ -405,7 +398,6 @@ class SonicationStation(JubileeMotionController):
                 self.deck_config['plates'][deck_index_str] = old_plate_config
         finally:
             self.disable_live_video()
-        self.move_xy_absolute() # Move up to the safe_z
         self.park_tool()
 
 
@@ -528,15 +520,6 @@ class SonicationStation(JubileeMotionController):
 
         return x_transformed, y_transformed
 
-
-    @cli_method
-    def demo(self):
-        plunge_depth = 15
-        self.sonicate_well(0, "A", 0, plunge_depth, 2)
-        self.sonicate_well(0, "A", 1, plunge_depth, 2)
-        self.sonicate_well(0, "A", 2, plunge_depth, 2)
-        self.sonicate_well(0, "A", 3, plunge_depth, 2)
-        self.park_tool()
 
     def __enter__(self):
       return self
