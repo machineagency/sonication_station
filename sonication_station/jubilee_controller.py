@@ -344,7 +344,8 @@ class JubileeMotionController(Inpromptu):
     @property
     def is_busy(self):
         """Get the high-level status of the machine."""
-        return self.machine_model['state']['status'].lower() == 'busy'
+        #return self.machine_model['state']['status'].lower() == 'busy'
+        return self.machine_model['state']['status'].lower() != 'idle'
 
 
     @property
