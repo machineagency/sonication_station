@@ -33,8 +33,6 @@ class JubileeMotionController(Inpromptu):
 
     TIMEOUT_S = 15 # a general timeout
 
-    EPSILON = 0.01
-
 
     def __init__(self, debug=False, simulated=False, reset=False):
         """Start with sane defaults. Setup command and subscribe connections."""
@@ -42,6 +40,7 @@ class JubileeMotionController(Inpromptu):
         self.debug = debug
         self.simulated = simulated
         self.machine_model = {}
+        self.model_update_timestamp = 0
         self.command_socket = None
         self.wake_time = None # Next scheduled time that the update thread updates.
         self.state_update_thread = None # The thread.
@@ -129,6 +128,7 @@ class JubileeMotionController(Inpromptu):
         with Lock(): # Lock access to the machine model before updating it.
             while packets:
                 self.machine_model.update(packets.pop(0))
+        self.model_update_timestamp = time.perf_counter()
         # Do scheduled updates on a loop.
         while self.keep_subscribing:
             #print(f"thread woke up at {time.perf_counter()}")
@@ -143,6 +143,7 @@ class JubileeMotionController(Inpromptu):
                 packet_buffer_str = subscribe_socket.recv(self.__class__.MM_BUFFER_SIZE).decode()
             except json.decoder.JSONDecodeError:
                 print("Buffer too small!")
+            self.model_update_timestamp = time.perf_counter()
             packets = parse_string_buffer_into_dicts(packet_buffer_str)
             with Lock(): # Lock access to the machine model.
             # TODO: we need a recursive update here for Patch mode.
@@ -252,23 +253,32 @@ class JubileeMotionController(Inpromptu):
 
 
     @machine_is_homed
-    def _move_xyz(self, x: float = None, y: float = None, z: float = None,
-                wait: bool = True):
-        """Move in XYZ. Absolute/relative set externally. Optional: wait until done."""
+    def _move_xyz(self, x: float = None, y: float = None, z: float = None):
+        """Move in XYZ. Absolute/relative set externally. Wait until done."""
         # TODO: find way to recover from out-of-bounds move requests.
-        # TODO: check if machine is homed first. Bail early if True.
 
-        # TODO: Either start in a state where the machine is not busy so we don't
-        #       save the wrong position and accumulate incorrectly OR
-        #       track the overall commanded position and compare.
+        # Assume we are starting from an idle state (since no other commands can make the machine busy).
+        old_x, old_y, old_z = self.position
+        new_position = (x if x else old_x, y if y else old_y, z if z else old_z)
+        if not self.absolute_moves:
+            new_position = (x+old_x if x else old_x,
+                            y+old_y if y else old_y,
+                            z+old_z if z else old_z)
+
+
         x_movement = f"X{x} " if x is not None else ""
         y_movement = f"Y{y} " if y is not None else ""
         z_movement = f"Z{z} " if z is not None else ""
         self.gcode(f"G0 {x_movement}{y_movement}{z_movement}F13000")
 
-        if not wait:
-            return
-        self.wait_until_idle()
+        # Handle small errors
+        EPS = 0.001
+        curr_position = self.position
+        while abs(new_position[0] - curr_position[0]) > EPS or \
+            abs(new_position[1] - curr_position[1]) > EPS or \
+            abs(new_position[2] - curr_position[2]) > EPS:
+            self._sleep_until_next_update()
+            curr_position = self.position
 
 
     def _set_absolute_moves(self, force: bool = False):
@@ -285,20 +295,18 @@ class JubileeMotionController(Inpromptu):
         self.absolute_moves = False
 
 
-    def move_xyz_relative(self, x: float = None, y: float = None,
-                          z: float = None, wait: bool = True):
+    def move_xyz_relative(self, x: float = None, y: float = None, z: float = None):
         """Do a relative move in XYZ."""
         self._set_relative_moves()
-        self._move_xyz(x, y, z, wait=wait)
+        self._move_xyz(x, y, z)
 
 
     @cli_method
-    def move_xyz_absolute(self, x: float = None, y: float = None,
-                          z: float = None, wait: bool = True):
+    def move_xyz_absolute(self, x: float = None, y: float = None, z: float = None):
         """Do an absolute move in XYZ."""
         # TODO: use push and pop sematics instead.
         self._set_absolute_moves()
-        self._move_xyz(x, y, z, wait)
+        self._move_xyz(x, y, z)
 
 
     @property
@@ -396,17 +404,17 @@ class JubileeMotionController(Inpromptu):
                 key = stdscr.getch()
                 stdscr.refresh()
                 if key == curses.KEY_UP:
-                    self.move_xyz_relative(y=-step_size, wait=False)
+                    self.move_xyz_relative(y=-step_size)
                 elif key == curses.KEY_DOWN:
-                    self.move_xyz_relative(y=step_size, wait=False)
+                    self.move_xyz_relative(y=step_size)
                 elif key == curses.KEY_LEFT:
-                    self.move_xyz_relative(x=step_size, wait=False)
+                    self.move_xyz_relative(x=step_size)
                 elif key == curses.KEY_RIGHT:
-                    self.move_xyz_relative(x=-step_size, wait=False)
+                    self.move_xyz_relative(x=-step_size)
                 elif key == ord('w'):
-                    self.move_xyz_relative(z=step_size, wait=False)
+                    self.move_xyz_relative(z=step_size)
                 elif key == ord('s'):
-                    self.move_xyz_relative(z=-step_size, wait=False)
+                    self.move_xyz_relative(z=-step_size)
                 elif key == ord('['):
                     step_size = step_size/2.0
                     if step_size < min_step_size:
@@ -432,24 +440,30 @@ class JubileeMotionController(Inpromptu):
         # new data after the move command was sent.
         # Note: we are assuming that if a gcode is acknowledged it immediately
         #       changes from idle to busy if it was not already busy.
-        self._sleep_until_next_update()
+        #print(f"start state: {self.machine_model['state']['status'].lower()} | {time.perf_counter():.3f}")
         self._sleep_until_next_update()
         while self.is_busy:
+            #print(f"curr state:  {self.machine_model['state']['status'].lower()} | {time.perf_counter():.3f}")
             if time.perf_counter() - start_wait_time > timeout:
-                raise RuntimeError("Error: Machine has timed out while waiting "
-                                   "for a move to complete.")
+                raise RuntimeError("Error: Machine has timed out while waiting for a move to complete.")
             self._sleep_until_next_update()
+        #print(f"end state:   {self.machine_model['state']['status'].lower()} | {time.perf_counter():.3f}")
+
 
     def _sleep_until_next_update(self):
         """Sleep until we know the machine model has received fresh data."""
+        last_model_update = self.model_update_timestamp
+        # Sleep at least until the thread is scheduled to update again.
         #print(f"attempting to sleep at {time.perf_counter()}. Will sleep till {self.wake_time}")
         sleep_interval = self.wake_time - time.perf_counter()
         if sleep_interval < 0:
             # Woke up before or during update thread's execution. Sleep again.
             #print(f"  Awoke too early. Will actually sleep till {self.wake_time + self.__class__.POLL_INTERVAL_S}")
             sleep_interval = self.wake_time + self.__class__.POLL_INTERVAL_S - time.perf_counter()
-        # Small delta to guarantee we wakeup after the thread.
         time.sleep(sleep_interval)
+        # Sleep in small increments until the thread has finished the current update.
+        while self.model_update_timestamp == last_model_update:
+            time.sleep(0.001)
 
 
     def disconnect(self):
