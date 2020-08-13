@@ -137,8 +137,7 @@ class JubileeMotionController(Inpromptu):
             # Acknowledge patch and request more; apply the patch; sleep
             j = json.dumps({"command": "Acknowledge"}).encode()
             subscribe_socket.sendall(j)
-            # TODO: Optimize. If we are in patch mode, only the first few
-            #       packets need a big buffer.
+            # TODO: Optimize. If we are in patch mode, only the first few packets need a big buffer.
             start_time = time.perf_counter()
             try:
                 packet_buffer_str = subscribe_socket.recv(self.__class__.MM_BUFFER_SIZE).decode()
@@ -166,9 +165,8 @@ class JubileeMotionController(Inpromptu):
                 #print(f"thread sleeping. next update time: {self.wake_time}")
                 time.sleep(self.wake_time - time.perf_counter())
             else:
-                # TODO: maybe accumulate or raise an error here?
-                print("Error: thread update speed too fast! "
-                                   "Missed update deadline!")
+                print("Error: thread update speed too fast! Missed update deadline!")
+
         subscribe_socket.shutdown(socket.SHUT_RDWR)
         subscribe_socket.close()
 
