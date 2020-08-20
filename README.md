@@ -25,7 +25,7 @@ This method is for invoking predefined protocol. Protocol mode may be useful for
 
 ### Protocol API
 A sample protocol looks like this:
-```
+```json
 {
    "protocol": [
        {
