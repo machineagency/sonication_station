@@ -5,7 +5,9 @@ jubilee masquerading as a science robot
 This project wraps a python interface around the existing Duet 3 Socket Interface, turning Jubilee into a plate handling lab automation device for sonication.
 
 ## Conventions
-PLATE PICTURE HERE
+Looking top-down at the plate, plates are indexed bottom-up and lef
+<img src="https://github.com/machineagency/sonication_station/blob/master/bed_plate_reference.png" width="480">
+
 
 ## API
 There are 3 ways of interacting with the machine: (1) directly through a python script, (2) interactively through a command prompt, and (3) procedurally with predefined protocol.
