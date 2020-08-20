@@ -53,7 +53,15 @@ A sample protocol looks like this:
    ]
 }
 ```
-So far, only one operation **sonicate_well**, is implemented.
+So far, only one operation **sonicate_well**, is implemented. the options are as follows:
+* **deck_index:** the deck index of the plate
+* **row_letter:** the row index on the plate, indicated by letter
+* **column_index:** the column indicated by integer
+* **plunge_depth:** the depth to plunge the sonicator into the glassware as measured from the top of the glassware
+* **seconds:** time in seconds to run the sonicator
+* **autoclean**: (boolean), whether or not to run a predefined cleaning protocol.
+
+Note that if **autoclean** is set to true, a cleaning protocol must be defined in the machine configuration. Cleanin protocols can also be defined in manual mode.
 
 ### Running the machine in Protocol Mode
 ```python
