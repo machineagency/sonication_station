@@ -1,6 +1,3 @@
-# sonication_station
-jubilee masquerading as a science robot
-
 ## Intro
 This project wraps a python interface around the existing Duet 3 Socket Interface, turning Jubilee into a plate handling lab automation device for sonication.
 
