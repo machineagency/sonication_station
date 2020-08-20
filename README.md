@@ -23,6 +23,8 @@ with JubileeMotionController(simulated=False) as jubilee:
     jubilee.cmdloop()
 ```
 
+This will drop you into an interactive prompt where you can manually setup the machine and execute commands serially. This interface is useful for adding to the plate inventory.
+
 ## Protocol Mode
 This method is for invoking predefined protocol. Protocol mode may be useful for generating a series of plate operations programmatically from another program and then simply executing them on the Sonication Station. Protocols consist of a series of sonication commands executed sequentially.
 
