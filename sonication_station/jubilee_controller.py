@@ -4,6 +4,7 @@ import socket
 import json
 import time
 import curses
+import pprint
 import readline
 from threading import Thread, Lock
 from inpromptu import Inpromptu, cli_method
@@ -42,6 +43,7 @@ class JubileeMotionController(Inpromptu):
         self.machine_model = {}
         self.model_update_timestamp = 0
         self.command_socket = None
+        self.intercept_socket = None
         self.wake_time = None # Next scheduled time that the update thread updates.
         self.state_update_thread = None # The thread.
         self.keep_subscribing = True # bool for keeping the thread alive.
@@ -56,22 +58,49 @@ class JubileeMotionController(Inpromptu):
         """Connect to Jubilee over the default unix socket."""
         if self.simulated:
             return
+        # Setup COMMAND mode connection.
         self.command_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        #self.command_socket.settimeout(5)
+        if self.debug:
+            print("Initializing connection...")
         self.command_socket.connect(self.__class__.SOCKET_ADDRESS)
         self.command_socket.setblocking(True)
         # Receive response packet with version info.
         version_pkt = self.command_socket.recv(128).decode()
         if self.debug:
             print(f"received: {version_pkt}")
+        print("Connecting in Command mode...")
         # Request to enter command mode.
         j=json.dumps({"mode":"command", "version": 8}).encode()
         self.command_socket.sendall(j)
         r=self.command_socket.recv(256).decode()
         if self.debug:
             print(f"received: {r}")
+            print()
 
-        # Launch the Update Thread.
+        # Setup Intercept mode connection
+        self.intercept_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        if self.debug:
+            print("Initializing connection...")
+        self.intercept_socket.connect(self.__class__.SOCKET_ADDRESS)
+        self.intercept_socket.setblocking(True)
+        # Receive response packet with version info.
+        version_pkt = self.intercept_socket.recv(128).decode()
+        if self.debug:
+            print(f"received: {version_pkt}")
+        #print("Connecting in Command mode...")
+        print("Connecting in Intercept mode, EXECUTED submode...")
+        # Request to enter intercept mode.
+        j=json.dumps({"mode":"intercept",
+                      "interceptionMode": "executed",
+                      "version": 8}).encode()
+        self.intercept_socket.sendall(j)
+        r=self.intercept_socket.recv(256).decode()
+        if self.debug:
+            print(f"received: {r}")
+            print()
+
+
+        # Setup SUBSCRIBE mode connection in a thread.
         self.state_update_thread = \
             Thread(target=self.update_machine_model_worker,
                     name="Machine Model Update Thread",
@@ -99,12 +128,15 @@ class JubileeMotionController(Inpromptu):
         # Subscribe to machine model updates
         subscribe_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         #subscribe_socket.settimeout(5)
+        if self.debug:
+            print("Initializing connection...")
         subscribe_socket.connect(self.__class__.SOCKET_ADDRESS)
         subscribe_socket.setblocking(True)
         # Receive response packet with version info.
         version_pkt = subscribe_socket.recv(128).decode()
         if self.debug:
             print(f"received: {version_pkt}")
+        print("Connecting in Subscription mode...")
         # Set the wakeup schedule based on the first time we update.
         self.wake_time = time.perf_counter()
         # Request to enter patch-based subscription mode.
@@ -123,6 +155,9 @@ class JubileeMotionController(Inpromptu):
         # Split into separate strings then dicts.
         packets = parse_string_buffer_into_dicts(packet_buffer_str)
         connection_status = packets.pop(0)
+        if self.debug:
+            print(f"received: {connection_status}")
+            print()
         if connection_status['success'] != True:
             raise RuntimeError("Failed to connect to machine.")
         with Lock(): # Lock access to the machine model before updating it.
@@ -154,12 +189,12 @@ class JubileeMotionController(Inpromptu):
                     except ValueError:
                         print(next_packet)
                         print()
-            if self.debug:
-                print(f"lock + receive delay: {time.perf_counter() - start_time}")
+            #if self.debug:
+            #    print(f"lock + receive delay: {time.perf_counter() - start_time}")
             # Sleep until next scheduled update time.
-            if self.debug:
-                print(f"loop time: {time.perf_counter() - loop_start}")
-                print()
+            #if self.debug:
+            #    print(f"loop time: {time.perf_counter() - loop_start}")
+            #    print()
             # Update the next wake time.
             self.wake_time = self.__class__.POLL_INTERVAL_S + self.wake_time
             if time.perf_counter() <= self.wake_time:
@@ -184,9 +219,23 @@ class JubileeMotionController(Inpromptu):
             print(f"sending: {gcode_packet}")
         if self.simulated:
             return
+        # Send the Packet on the Command connection.
         j=json.dumps(gcode_packet).encode()
         self.command_socket.send(j)
+
+        # Track the execution status of the command on the Intercept connection.
+        r=self.intercept_socket.recv(1023).decode()
+        if self.debug:
+            print("(INT) received:")
+            pprint.pprint(json.loads(r))
+            print()
+        cmd_resolution = {"command": "resolve"}
+        j=json.dumps(cmd_resolution).encode()
+        self.intercept_socket.send(j)
+
         r=self.command_socket.recv(self.__class__.MM_BUFFER_SIZE).decode()
+        if self.debug:
+            print(f"(COM) received: {r}")
         if ('Error' in r):
             print('Error detected, stopping script')
             print(j)
@@ -277,6 +326,7 @@ class JubileeMotionController(Inpromptu):
         while abs(new_position[0] - curr_position[0]) > EPS or \
             abs(new_position[1] - curr_position[1]) > EPS or \
             abs(new_position[2] - curr_position[2]) > EPS:
+            print(f"curr state:  {self.machine_model['state']['status'].lower()} | {time.perf_counter():.3f}")
             self._sleep_until_next_update()
             curr_position = self.position
 
@@ -363,7 +413,6 @@ class JubileeMotionController(Inpromptu):
 
     @cli_method
     def show_machine_model(self):
-        import pprint
         pprint.pprint(self.machine_model)
 
 
@@ -472,6 +521,11 @@ class JubileeMotionController(Inpromptu):
             self.command_socket.shutdown(socket.SHUT_RDWR)
             self.command_socket.close()
 
+    @cli_method
+    def _resolve_pending_command(self):
+        """Let an executed command resolve."""
+        pass
+
 
     def __enter__(self):
       return self
@@ -481,5 +535,5 @@ class JubileeMotionController(Inpromptu):
 
 
 if __name__ == "__main__":
-    with JubileeMotionController(simulated=False) as jubilee:
+    with JubileeMotionController(simulated=False, debug=True) as jubilee:
         jubilee.cmdloop()

@@ -276,7 +276,7 @@ class SonicationStation(JubileeMotionController):
                                  "column_index": col,
                                  "plunge_depth": plunge_depth,
                                  "seconds": plunge_time,
-                                 "clean": False}} # Do not set to True or infinite recursion.
+                                 "autoclean": False}} # Do not set to True or infinite recursion.
                 protocol.append(cmd)
                 user_response = self.input("Add another bathing cycle? [y/n]")
                 if user_response.lower() not in ['y', 'yes']:
@@ -405,7 +405,7 @@ class SonicationStation(JubileeMotionController):
     @requires_safe_z
     @requires_cleaning_station
     def sonicate_well(self, deck_index: int, row_letter: str, column_index: int,
-                      plunge_depth: float, seconds: float, clean: bool = True):
+                      plunge_depth: float, seconds: float, autoclean: bool = True):
         """Sonicate one well at a specified depth for a given time. Then clean the tip."""
 
         # Json dicts enforce that keys must be strings.
@@ -447,7 +447,7 @@ class SonicationStation(JubileeMotionController):
         """Open the protocol file and run the protocol."""
         with open(protocol_file_path, 'r') as protocol_file:
             protocol = json.loads(protocol_file.read())
-            self.execute_protocol(protocol)
+            self.execute_protocol(protocol["protocol"])
 
 
     def execute_protocol(self, protocol):
