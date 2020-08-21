@@ -521,6 +521,14 @@ class SonicationStation(JubileeMotionController):
         return x_transformed, y_transformed
 
 
+    @cli_method
+    def demo(self):
+        rows = ["A", "B", "C"]
+        columns = [1, 2, 3, 4]
+        for row in rows:
+            for col in columns:
+                self.sonicate_well(3, row, col, 3, 2)
+
     def __enter__(self):
       return self
 
