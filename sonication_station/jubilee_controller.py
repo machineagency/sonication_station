@@ -321,7 +321,7 @@ class JubileeMotionController(Inpromptu):
 
 if __name__ == "__main__":
     with JubileeMotionController(simulated=False, debug=False) as jubilee:
-        #pass
+        pass
         #jubilee.cmdloop()
         #jubilee.home_all()
         #jubilee.move_xyz_absolute(z=20)
