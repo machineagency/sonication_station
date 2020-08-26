@@ -425,7 +425,7 @@ class SonicationStation(JubileeMotionController):
 
         print(f"Moving to: ({x:.3f}, {y:.3f})")
         self.move_xy_absolute(x,y) # Position over the well at safe z height.
-        self.move_xyz_absolute(z=plunge_height)
+        self.move_xyz_absolute(z=plunge_height, wait=True)
         print(f"Sonicating for {seconds} seconds!!")
         self.sonicator.sonicate(seconds)
         print("done!")

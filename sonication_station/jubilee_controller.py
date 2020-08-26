@@ -18,8 +18,12 @@ class MachineStateError(Exception):
 def machine_is_homed(func):
     @wraps(func) # We need this for @cli_method to work
     def homing_check(self, *args, **kwds):
-        axes_homed = json.loads(self.gcode("M409 K\"move.axes[].homed\""))["result"]
-        if not all(axes_homed):
+        # Check the cached value if one exists.
+        if self.axes_homed and all(self.axes_homed):
+            return func(self, *args, **kwds)
+        # Request homing status from the object model if not known.
+        self.axes_homed = json.loads(self.gcode("M409 K\"move.axes[].homed\""))["result"][:4]
+        if not all(self.axes_homed):
             raise MachineStateError("Error: machine must first be homed.")
         return func(self, *args, **kwds)
 
@@ -27,14 +31,8 @@ def machine_is_homed(func):
 
 class JubileeMotionController(Inpromptu):
     """Driver for sending motion cmds and polling the machine state."""
-    POLL_INTERVAL_S = 0.5 # Interval for updating the machine model.
-    SOCKET_ADDRESS = '/var/run/dsf/dcs.sock'
-    MM_BUFFER_SIZE = 131072
-    SUBSCRIBE_MODE = "Full"
 
-    TIMEOUT_S = 15 # a general timeout
     LOCALHOST = "127.0.0.1"
-
 
     def __init__(self, address=LOCALHOST, debug=False, simulated=False, reset=False):
         """Start with sane defaults. Setup command and subscribe connections."""
@@ -48,6 +46,7 @@ class JubileeMotionController(Inpromptu):
         self.wake_time = None # Next scheduled time that the update thread updates.
         self.absolute_moves = True
         self.connect()
+        self.axes_homed = [False]*4
         if reset:
             self.reset() # also does a reconnect.
         self._set_absolute_moves(force=True)
@@ -57,16 +56,31 @@ class JubileeMotionController(Inpromptu):
         """Connect to Jubilee over the default unix socket."""
         if self.simulated:
             return
-        # TODO: maybe do a ping here?
+        # Do the equivalent of a ping to see if the machine is up.
+        if self.debug:
+            print(f"Connecting to {self.address} ...")
+        try:
+            # "Ping" the machine by updating the only cacheable information we care about.
+            self.axes_homed = json.loads(self.gcode("M409 K\"move.axes[].homed\"", timeout=1))["result"][:4]
+            #pprint.pprint(json.loads(requests.get("http://127.0.0.1/machine/status").text))
+            self._set_absolute_moves(force=True) # TODO: recover this from object model.
+            if self.debug:
+                print(f"received: {self.axes_homed}")
+        except json.decoder.JSONDecodeError as e:
+            raise MachineStateError("DCS not ready to connect.") from e
+        except requests.exceptions.Timeout as e:
+            raise MachineStateError("Connection timed out. URL may be invalid, or machine may not be connected to the network.") from e
+        if self.debug:
+            print("Connected.")
 
 
-    def gcode(self, cmd: str = ""):
+    def gcode(self, cmd: str = "", timeout=None):
         """Send a GCode cmd; return the response"""
         if self.debug or self.simulated:
             print(f"sending: {cmd}")
         if self.simulated:
             return None
-        response = requests.post(f"http://{self.address}/machine/code", data=f"{cmd}").text
+        response = requests.post(f"http://{self.address}/machine/code", data=f"{cmd}", timeout=timeout).text
         if self.debug:
             print(f"received: {response}")
             #print(json.dumps(r, sort_keys=True, indent=4, separators=(',', ':')))
@@ -77,10 +91,8 @@ class JubileeMotionController(Inpromptu):
     def reset(self):
         """Issue a software reset."""
         # End the subscribe thread first.
-        self.keep_subscribing = False
-        self.state_update_thread.join()
-        self.keep_subscribing = True
         self.gcode("M999") # Issue a board reset. Assumes we are already connected
+        self.axes_homed = [False]*4
         self.disconnect()
         print("Reconnecting...")
         for i in range(10):
@@ -88,9 +100,9 @@ class JubileeMotionController(Inpromptu):
             try:
                 self.connect()
                 return
-            except FileNotFoundError as e:
+            except MachineStateError as e:
                 pass
-        print("Reconnecting failed.")
+        raise MachineStateError("Reconnecting failed.")
 
 
     @cli_method
@@ -100,6 +112,8 @@ class JubileeMotionController(Inpromptu):
             self.park_tool()
         self.gcode("G28")
         self._set_absolute_moves(force=True)
+        # Update homing state. Do not query the object model because of race condition.
+        self.axes_homed = [True, True, True, True] # X, Y, Z, U
 
 
     @cli_method
@@ -111,6 +125,9 @@ class JubileeMotionController(Inpromptu):
         self.gcode("G28 X")
         self.gcode("G28 U")
         self._set_absolute_moves(force=True)
+        # Update homing state. Pull Z from the object model which will not create a race condition.
+        z_home_status = json.loads(self.gcode("M409 K\"move.axes[].homed\""))["result"][2]
+        self.axes_homed = [True, True, z_home_status, True]
 
 
     @cli_method
@@ -211,7 +228,10 @@ class JubileeMotionController(Inpromptu):
     def active_tool_index(self):
         """Return the index of the current tool."""
         # TODO: consider replacing with T.
-        return int(self.gcode("T"))
+        try:
+            return int(self.gcode("T"))
+        except ValueError as e:
+            return -1
 
 
     @cli_method
@@ -277,7 +297,7 @@ class JubileeMotionController(Inpromptu):
                     if step_size > max_step_size:
                         step_size = max_step_size
                     stdscr.addstr(7,0,f"Step Size: {step_size:<8}")
-            self.move_xyz_absolute(wait=True)
+            self.move_xyz_relative(wait=True) # Wait for last move to finish.
         finally:
             curses.nocbreak()
             stdscr.keypad(False)
@@ -300,5 +320,16 @@ class JubileeMotionController(Inpromptu):
 
 
 if __name__ == "__main__":
-    with JubileeMotionController(simulated=False, debug=True) as jubilee:
-        jubilee.cmdloop()
+    with JubileeMotionController(simulated=False, debug=False) as jubilee:
+        #pass
+        #jubilee.cmdloop()
+        #jubilee.home_all()
+        #jubilee.move_xyz_absolute(z=20)
+        #jubilee.move_xyz_absolute(150, 150, wait=True)
+        #print("done moving to initial spot.")
+        #jubilee.move_xyz_relative(10)
+        #jubilee.move_xyz_relative(0, 10)
+        #jubilee.move_xyz_relative(-10)
+        #jubilee.move_xyz_relative(0, -10)
+        #jubilee.move_xyz_absolute(0, 0, wait=True)
+        #print("done moving!")
