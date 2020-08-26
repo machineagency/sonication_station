@@ -173,11 +173,11 @@ class SonicationStation(JubileeMotionController):
 
 
     @cli_method
-    def move_xy_absolute(self, x: float = None, y: float = None):
+    def move_xy_absolute(self, x: float = None, y: float = None, wait: bool = False):
         """Move in XY, but include the safe Z retract first if defined."""
         if self.safe_z is not None:
-            super().move_xyz_absolute(z=self.safe_z)
-        super().move_xyz_absolute(x,y)
+            super().move_xyz_absolute(z=self.safe_z, wait=False)
+        super().move_xyz_absolute(x,y, wait=wait)
 
     @cli_method
     def park_tool(self):

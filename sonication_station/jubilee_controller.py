@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Driver for Controlling Jubilee"""
-import socket
+import websocket # for reading the machine model
+import requests # for issuing commands
 import json
 import time
 import curses
-import readline
+import pprint
 from threading import Thread, Lock
 from inpromptu import Inpromptu, cli_method
 from functools import wraps
@@ -26,22 +27,24 @@ def machine_is_homed(func):
 
 class JubileeMotionController(Inpromptu):
     """Driver for sending motion cmds and polling the machine state."""
-    POLL_INTERVAL_S = 0.4 # Interval for updating the machine model.
+    POLL_INTERVAL_S = 0.5 # Interval for updating the machine model.
     SOCKET_ADDRESS = '/var/run/dsf/dcs.sock'
     MM_BUFFER_SIZE = 131072
     SUBSCRIBE_MODE = "Full"
 
     TIMEOUT_S = 15 # a general timeout
+    LOCALHOST = "127.0.0.1"
 
 
-    def __init__(self, debug=False, simulated=False, reset=False):
+    def __init__(self, address=LOCALHOST, debug=False, simulated=False, reset=False):
         """Start with sane defaults. Setup command and subscribe connections."""
         super().__init__()
+        self.address = address
         self.debug = debug
         self.simulated = simulated
         self.machine_model = {}
         self.model_update_timestamp = 0
-        self.command_socket = None
+        self.command_ws = None
         self.wake_time = None # Next scheduled time that the update thread updates.
         self.state_update_thread = None # The thread.
         self.keep_subscribing = True # bool for keeping the thread alive.
@@ -56,21 +59,6 @@ class JubileeMotionController(Inpromptu):
         """Connect to Jubilee over the default unix socket."""
         if self.simulated:
             return
-        self.command_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        #self.command_socket.settimeout(5)
-        self.command_socket.connect(self.__class__.SOCKET_ADDRESS)
-        self.command_socket.setblocking(True)
-        # Receive response packet with version info.
-        version_pkt = self.command_socket.recv(128).decode()
-        if self.debug:
-            print(f"received: {version_pkt}")
-        # Request to enter command mode.
-        j=json.dumps({"mode":"command", "version": 8}).encode()
-        self.command_socket.sendall(j)
-        r=self.command_socket.recv(256).decode()
-        if self.debug:
-            print(f"received: {r}")
-
         # Launch the Update Thread.
         self.state_update_thread = \
             Thread(target=self.update_machine_model_worker,
@@ -84,82 +72,37 @@ class JubileeMotionController(Inpromptu):
         if self.simulated:
             return
 
-        def parse_string_buffer_into_dicts(packet_buffer_str):
-            """Split multiple serialized json dicts into separate dicts."""
-            packets = [e+"}" if e.startswith("{") and not e.endswith("}") else \
-                       "{"+e if e.endswith("}") and not e.startswith("{") else \
-                       e for e in packet_buffer_str.split("}{")]
-            if packets[0] == "":
-                return []
-            packet_dicts = []
-            while packets:
-                packet_dicts.append(json.loads(packets.pop(0)))
-            return packet_dicts
-
         # Subscribe to machine model updates
-        subscribe_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        #subscribe_socket.settimeout(5)
-        subscribe_socket.connect(self.__class__.SOCKET_ADDRESS)
-        subscribe_socket.setblocking(True)
-        # Receive response packet with version info.
-        version_pkt = subscribe_socket.recv(128).decode()
-        if self.debug:
-            print(f"received: {version_pkt}")
+        subscribe_ws = websocket.create_connection(f"ws://{self.address}/machine")
         # Set the wakeup schedule based on the first time we update.
         self.wake_time = time.perf_counter()
-        # Request to enter patch-based subscription mode.
-        j=json.dumps({"mode":"subscribe",
-                      "version": 8,
-                      #"subscriptionMode": "Patch"}).encode()
-                      "subscriptionMode": self.__class__.SUBSCRIBE_MODE}).encode()
-        subscribe_socket.sendall(j)
-        # Do the first update. Handle first message which contains the connection status.
-        packet_buffer_str = ""
-        try:
-            packet_buffer_str = subscribe_socket.recv(self.__class__.MM_BUFFER_SIZE).decode()
-        except json.decoder.JSONDecodeError:
-            raise RuntimeError("Error decoding connection status message.")
-        # Received data could be multiple serialized json objects. Handle each of them.
-        # Split into separate strings then dicts.
-        packets = parse_string_buffer_into_dicts(packet_buffer_str)
-        connection_status = packets.pop(0)
-        if connection_status['success'] != True:
-            raise RuntimeError("Failed to connect to machine.")
+        # Do the first update.
         with Lock(): # Lock access to the machine model before updating it.
-            while packets:
-                self.machine_model.update(packets.pop(0))
+            self.machine_model = json.loads(subscribe_ws.recv())
+        pprint.pprint(self.machine_model)
         self.model_update_timestamp = time.perf_counter()
         # Do scheduled updates on a loop.
         while self.keep_subscribing:
             #print(f"thread woke up at {time.perf_counter()}")
             if self.debug:
                 loop_start = time.perf_counter()
-            # Acknowledge patch and request more; apply the patch; sleep
-            j = json.dumps({"command": "Acknowledge"}).encode()
-            subscribe_socket.sendall(j)
-            # TODO: Optimize. If we are in patch mode, only the first few packets need a big buffer.
+            # Acknowledge patch and request more; apply the update
+            subscribe_ws.send("OK\n")
             start_time = time.perf_counter()
-            try:
-                packet_buffer_str = subscribe_socket.recv(self.__class__.MM_BUFFER_SIZE).decode()
-            except json.decoder.JSONDecodeError:
-                print("Buffer too small!")
+            machine_model_patch = json.loads(subscribe_ws.recv())
+            if self.debug:
+                pprint.pprint(machine_model_patch)
+            self.apply_patch(machine_model_patch)
             self.model_update_timestamp = time.perf_counter()
-            packets = parse_string_buffer_into_dicts(packet_buffer_str)
+            # TODO: only update if there is actual data.
             with Lock(): # Lock access to the machine model.
-            # TODO: we need a recursive update here for Patch mode.
-                while packets:
-                    try:
-                        next_packet = packets.pop(0)
-                        self.machine_model.update(next_packet)
-                    except ValueError:
-                        print(next_packet)
-                        print()
-            if self.debug:
-                print(f"lock + receive delay: {time.perf_counter() - start_time}")
+                self.machine_model.update(machine_model_patch)
+            #if self.debug:
+            #    print(f"lock + receive delay: {time.perf_counter() - start_time}")
             # Sleep until next scheduled update time.
-            if self.debug:
-                print(f"loop time: {time.perf_counter() - loop_start}")
-                print()
+            #if self.debug:
+            #    print(f"loop time: {time.perf_counter() - loop_start}")
+            #    print()
             # Update the next wake time.
             self.wake_time = self.__class__.POLL_INTERVAL_S + self.wake_time
             if time.perf_counter() <= self.wake_time:
@@ -168,31 +111,70 @@ class JubileeMotionController(Inpromptu):
             else:
                 print("Error: thread update speed too fast! Missed update deadline!")
 
-        subscribe_socket.shutdown(socket.SHUT_RDWR)
-        subscribe_socket.close()
+        subscribe_ws.close()
 
 
-    #@cli_method
-    #def print_curr_time_and_wake_time(self):
-    #    print(f"curr_time: {time.perf_counter()} | wake time: {self.wake_time}")
-    #    print(self.wake_time > time.perf_counter())
+    def apply_patch(self, patch):
+        return self._apply_patch(patch, self.machine_model)
+
+    def _apply_patch(self, patch, object_model_ref=None, indentation=0):
+        """recursively apply object model patch to the current object model."""
+        # Starting case.
+        #if indentation == 0:
+        #    print("APPLYING PATCH")
+        #    print(" "*indentation + f"current_object_model: original.")
+        #else:
+        #    print(" "*indentation + f"current_object_model: {object_model_ref}")
+
+        if type(patch) == list:
+            #print(" "*indentation + f"current_patch (list): {patch}")
+            # Check if item was removed from list. If so, take the whole patch.
+            if len(patch) < len(object_model_ref):
+                # Modify by reference, not by value
+                object_model_ref.clear()
+                object_model_ref.extend(patch)
+                return
+            for index, patch_item in enumerate(patch):
+                # Add new entries to the list.
+                #print(" "*indentation + f"list index: {index} | len(object_model_ref): {len(object_model_ref)}")
+                if index >= len(object_model_ref):
+                    #print(" "*indentation + f"APPENDING {patch_item} to {object_model_ref}")
+                    object_model_ref.append(patch_item)
+                    #print(" "*indentation + f"RESULT: {object_model_ref}")
+                elif type(patch_item) in [dict, list]:
+                    self._apply_patch(patch_item, object_model_ref[index], indentation+4)
+                else:
+                    # Base case.
+                    object_model_ref[index] = patch_item
+        elif type(patch) == dict:
+            #print(" "*indentation + f"current_patch (dict): {patch}")
+            for patch_key in patch.keys():
+                if type(patch[patch_key]) == dict:
+                    # Add new entries to the dict
+                    if patch_key not in object_model_ref:
+                        object_model_ref[patch_key] = patch[patch_key]
+                    else:
+                        self._apply_patch(patch[patch_key], object_model_ref[patch_key], indentation+4)
+                elif type(patch[patch_key]) == list:
+                    self._apply_patch(patch[patch_key], object_model_ref[patch_key], indentation+4)
+                else:
+                    # Base case.
+                    object_model_ref[patch_key] = patch[patch_key]
+        #print(" "*indentation + f"done")
+
+
 
     def gcode(self, cmd: str = ""):
-        """Send a GCode string and wait for reply to ensure it was processed."""
-        gcode_packet = {"code": cmd,"channel": 0,"command": "SimpleCode"}
+        """Send a GCode cmd; return the response"""
         if self.debug or self.simulated:
-            print(f"sending: {gcode_packet}")
+            print(f"sending: {cmd}")
         if self.simulated:
-            return
-        j=json.dumps(gcode_packet).encode()
-        self.command_socket.send(j)
-        r=self.command_socket.recv(self.__class__.MM_BUFFER_SIZE).decode()
-        if ('Error' in r):
-            print('Error detected, stopping script')
-            print(j)
-            print(r)
-            exit(8)
-        return(r)
+            return None
+        response = requests.post(f"http://{self.address}/machine/code", data=f"{cmd}").text
+        if self.debug:
+            print(f"received: {response}")
+            #print(json.dumps(r, sort_keys=True, indent=4, separators=(',', ':')))
+        return response
 
 
     @cli_method
@@ -253,33 +235,16 @@ class JubileeMotionController(Inpromptu):
 
 
     @machine_is_homed
-    def _move_xyz(self, x: float = None, y: float = None, z: float = None):
+    def _move_xyz(self, x: float = None, y: float = None, z: float = None, wait: bool = False):
         """Move in XYZ. Absolute/relative set externally. Wait until done."""
         # TODO: find way to recover from out-of-bounds move requests.
-
-        # Assume we are starting from an idle state (since no other commands can make the machine busy).
-        old_x, old_y, old_z = self.position
-        new_position = (x if x else old_x, y if y else old_y, z if z else old_z)
-        if not self.absolute_moves:
-            new_position = (x+old_x if x else old_x,
-                            y+old_y if y else old_y,
-                            z+old_z if z else old_z)
-
 
         x_movement = f"X{x} " if x is not None else ""
         y_movement = f"Y{y} " if y is not None else ""
         z_movement = f"Z{z} " if z is not None else ""
         self.gcode(f"G0 {x_movement}{y_movement}{z_movement}F13000")
-
-        # Handle small errors
-        EPS = 0.001
-        curr_position = self.position
-        while abs(new_position[0] - curr_position[0]) > EPS or \
-            abs(new_position[1] - curr_position[1]) > EPS or \
-            abs(new_position[2] - curr_position[2]) > EPS:
-            self._sleep_until_next_update()
-            curr_position = self.position
-
+        if wait:
+            self.gcode(f"M400")
 
     def _set_absolute_moves(self, force: bool = False):
         if self.absolute_moves and not force:
@@ -295,25 +260,26 @@ class JubileeMotionController(Inpromptu):
         self.absolute_moves = False
 
 
-    def move_xyz_relative(self, x: float = None, y: float = None, z: float = None):
+    def move_xyz_relative(self, x: float = None, y: float = None, z: float = None, wait: bool = False):
         """Do a relative move in XYZ."""
         self._set_relative_moves()
-        self._move_xyz(x, y, z)
+        self._move_xyz(x, y, z, wait)
 
 
     @cli_method
-    def move_xyz_absolute(self, x: float = None, y: float = None, z: float = None):
+    def move_xyz_absolute(self, x: float = None, y: float = None, z: float = None, wait: bool = False):
         """Do an absolute move in XYZ."""
         # TODO: use push and pop sematics instead.
         self._set_absolute_moves()
-        self._move_xyz(x, y, z)
+        self._move_xyz(x, y, z, wait)
 
 
     @property
     @cli_method
     def position(self):
         """Returns the machine control point in mm."""
-        # We are assuming axes are ordered X, Y, Z, U. Where is this order defined?
+        # TODO: consider replacing with M114.
+        # We are assuming axes are ordered X, Y, Z, U.
         tool_offsets = [0, 0, 0]
         if self.active_tool_index != -1: # "-1" is equivalent to "no tools."
             tool_offsets = self.machine_model['tools'][self.active_tool_index]['offsets'][:3]
@@ -358,12 +324,12 @@ class JubileeMotionController(Inpromptu):
     @cli_method
     def active_tool_index(self):
         """Return the index of the current tool."""
+        # TODO: consider replacing with T.
         return self.machine_model['state']['currentTool']
 
 
     @cli_method
     def show_machine_model(self):
-        import pprint
         pprint.pprint(self.machine_model)
 
 
@@ -469,8 +435,7 @@ class JubileeMotionController(Inpromptu):
     def disconnect(self):
         """Close the connection."""
         if not self.simulated:
-            self.command_socket.shutdown(socket.SHUT_RDWR)
-            self.command_socket.close()
+            self.command_ws.close()
 
 
     def __enter__(self):
@@ -481,5 +446,5 @@ class JubileeMotionController(Inpromptu):
 
 
 if __name__ == "__main__":
-    with JubileeMotionController(simulated=False) as jubilee:
+    with JubileeMotionController(simulated=False, debug=True) as jubilee:
         jubilee.cmdloop()
