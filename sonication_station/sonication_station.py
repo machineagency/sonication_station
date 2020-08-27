@@ -14,8 +14,6 @@ from inpromptu import cli_method, UserInputError
 from jubilee_controller import JubileeMotionController, MachineStateError
 from sonicator import Sonicator
 
-# TODO: put stickers on the deck plate to enumerate them.
-
 
 def protocol_method(func):
     """Mark a function as usable in protocols."""
@@ -180,10 +178,20 @@ class SonicationStation(JubileeMotionController):
         super().move_xyz_absolute(x,y, wait=wait)
 
     @cli_method
+    def pickup_tool(self, tool_index: int):
+        """Pick up the tool specified by tool index."""
+        super().pickup_tool(tool_index)
+        if tool_index == self.__class__.CAMERA_TOOL_INDEX:
+            self.enable_live_video()
+
+    @cli_method
     def park_tool(self):
         """Park the current tool, but move up to safe_z height first"""
+        if self.active_tool_index == self.__class__.CAMERA_TOOL_INDEX:
+            self.disable_live_video()
         self.move_xy_absolute()
         super().park_tool()
+
 
 
     @cli_method
@@ -463,6 +471,9 @@ class SonicationStation(JubileeMotionController):
 
     def enable_live_video(self):
         """Enables the video feed."""
+        if self.cam_feed_process:
+            print("Camera feed already started.")
+            return
         print("Starting camera feed.")
         self.discarded_cam_output = open(os.devnull, 'w')
         self.cam_feed_process = \
@@ -523,11 +534,12 @@ class SonicationStation(JubileeMotionController):
 
     @cli_method
     def demo(self):
+        time.sleep(5)
         rows = ["A", "B", "C"]
         columns = [1, 2, 3, 4]
         for row in rows:
             for col in columns:
-                self.sonicate_well(3, row, col, 3, 2)
+                self.sonicate_well(3, row, col, 1, 2)
 
     def __enter__(self):
       return self

@@ -26,8 +26,8 @@ def machine_is_homed(func):
         if not all(self.axes_homed):
             raise MachineStateError("Error: machine must first be homed.")
         return func(self, *args, **kwds)
-
     return homing_check
+
 
 class JubileeMotionController(Inpromptu):
     """Driver for sending motion cmds and polling the machine state."""
@@ -37,16 +37,18 @@ class JubileeMotionController(Inpromptu):
     def __init__(self, address=LOCALHOST, debug=False, simulated=False, reset=False):
         """Start with sane defaults. Setup command and subscribe connections."""
         super().__init__()
+        if address != self.__class__.LOCALHOST:
+            print("Warning: disconnecting this application from the network will halt connection to Jubilee.")
         self.address = address
         self.debug = debug
         self.simulated = simulated
-        self.machine_model = {}
         self.model_update_timestamp = 0
         self.command_ws = None
         self.wake_time = None # Next scheduled time that the update thread updates.
         self.absolute_moves = True
         self.connect()
         self.axes_homed = [False]*4
+        self._active_tool_index = None # Cached value.
         if reset:
             self.reset() # also does a reconnect.
         self._set_absolute_moves(force=True)
@@ -62,8 +64,10 @@ class JubileeMotionController(Inpromptu):
         try:
             # "Ping" the machine by updating the only cacheable information we care about.
             self.axes_homed = json.loads(self.gcode("M409 K\"move.axes[].homed\"", timeout=1))["result"][:4]
+            # TODO: get active tool index!
             #pprint.pprint(json.loads(requests.get("http://127.0.0.1/machine/status").text))
-            self._set_absolute_moves(force=True) # TODO: recover this from object model.
+            # TODO: recover absolute/relative from object model instead of enforcing it here.
+            self._set_absolute_moves(force=True)
             if self.debug:
                 print(f"received: {self.axes_homed}")
         except json.decoder.JSONDecodeError as e:
@@ -201,42 +205,36 @@ class JubileeMotionController(Inpromptu):
         return positions
 
 
-
     @cli_method
     def pickup_tool(self, tool_index: int):
         """Pick up the tool specified by tool index."""
         if tool_index < 0:
             return
         self.gcode(f"T{tool_index}")
+        # Update the cached value to prevent read delays.
+        self._active_tool_index = tool_index
 
 
     @cli_method
     def park_tool(self):
         """Park the current tool."""
         self.gcode("T-1")
-
-
-    @property
-    def is_busy(self):
-        """Get the high-level status of the machine."""
-        #return self.machine_model['state']['status'].lower() == 'busy'
-        return self.machine_model['state']['status'].lower() != 'idle'
+        # Update the cached value to prevent read delays.
+        self._active_tool_index = -1
 
 
     @property
     @cli_method
     def active_tool_index(self):
         """Return the index of the current tool."""
-        # TODO: consider replacing with T.
-        try:
-            return int(self.gcode("T"))
-        except ValueError as e:
-            return -1
-
-
-    @cli_method
-    def show_machine_model(self):
-        pprint.pprint(self.machine_model)
+        if self._active_tool_index is None: # Starting from a fresh connection.
+            try:
+                self._active_tool_index = int(self.gcode("T"))
+            except ValueError as e:
+                print("Error occurred trying to read current tool!")
+                raise e
+        # Return the cached value.
+        return self._active_tool_index
 
 
     @cli_method
@@ -321,8 +319,7 @@ class JubileeMotionController(Inpromptu):
 
 if __name__ == "__main__":
     with JubileeMotionController(simulated=False, debug=False) as jubilee:
-        pass
-        #jubilee.cmdloop()
+        jubilee.cmdloop()
         #jubilee.home_all()
         #jubilee.move_xyz_absolute(z=20)
         #jubilee.move_xyz_absolute(150, 150, wait=True)
