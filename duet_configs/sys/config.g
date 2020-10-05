@@ -36,12 +36,12 @@ M671 X297:2.5:150 Y313.5:313.5:-16.5 S10 ; Front Left: (297.5, 313.5) | Front Ri
 M350 X16 Y16 Z16 U2 I1                   ; Set 16x microstepping for xyz , 2x for toolchanger lock. Use interpolation.
 M906 X1950 Y1950 Z1600                   ; Motor currents (mA)
 M906 U1000 I70                           ; StepperOnline Toolchanger Elastic Lock Motor current and idle motor percentage. Do not lower idle current.
-M201 X1000 Y1000 Z20 U1000               ; Accelerations (mm/s^2)
-M203 X13000 Y13000 Z800 U10000           ; Maximum speeds (mm/min). Conservative to ensure steps aren't lost when carrying tools.
+M201 X1000 Y1000 Z50 U1000               ; Accelerations (mm/s^2)
+M203 X13000 Y13000 Z1600 U10000          ; Maximum speeds (mm/min). Conservative to ensure steps aren't lost when carrying tools.
 M566 X1000 Y1000 Z2 U200                 ; Maximum jerk speeds mm/minute
 M92 X200 Y200                            ; Steps/mm for X,Y
 M92 U5.7575                              ; formerly 11.515 ; Steps/deg for U from (200 * 4 * 5.18)/360
-M92 Z3200                                ; Steps/mm for Z for a 2mm pitch leadscrew, 0.9mm stepper. (16 * 400)/2
+M92 Z1600                                ; Steps/mm for Z for a 4mm pitch leadscrew, 0.9mm stepper. (16 * 400)/4
 
 ; Homing Switch Configuration
 M574 X1 S1 P"^io0.in"                    ; configure homing switch X1 = low-end, S1 = active-high (NC), ^ =  use pullup
@@ -55,12 +55,12 @@ M208 X-13.75:313.75 Y-44:341 Z-0.2:305
 M208 U0:200                                 ; Set Elastic Lock (U axis) max rotation angle
 
 ; Z probing settings
-M558 P5 C"^io2.in" H20 A1 T10000  S0.02
+M558 P5 C"^io2.in" H20 A1 T14000  S0.02
 ; P5 --> probe type: filtered digital input
 ; C"^io2.in" --> endstop number
 ; H5 --> dive height
 ; A1 --> max number of times to probe
-; T100000 --> travel speed between probe points
+; T14000 --> travel speed between probe points
 ; S0.02 --> tolerance when probing multiple times
 
 M501                                    ; Load saved parameters from non-volatile memory
@@ -70,5 +70,9 @@ M501                                    ; Load saved parameters from non-volatil
 M563 P0 S"Camera"                    ; Define tool 0
 G10 P0 Y44 Z-20                          ; Set tool 0 offset from the bed. These will be different for everyone.
 
-M563 P1 S"Sonicator"                      ; Define tool 1
-G10 P1 Y37 Z-155                           ; Set tool 1 offset from the bed. These will be different for everyone.
+M563 P1 S"Sonicator"                     ; Define tool 1
+G10 P1 X1.75 Y39.338 Z-155               ; Set tool 1 offset from the bed. These will be different for everyone.
+
+; Swivel Camera Definition. Define Servo0.
+M950 S0 C"io4.out"
+M280 P0 S700 ; max is about S1600

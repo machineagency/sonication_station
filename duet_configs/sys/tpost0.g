@@ -4,7 +4,7 @@
 ; Note that commands preempted with G53 will NOT apply the tool offset.
 
 G90                          ; Ensure the machine is in absolute mode before issuing movements.
-G53 G1 Y335 F6000            ; Move to the pickup position with tool-0.
+G53 G1 Y339 F6000            ; Move to the pickup position with tool-0.
 M98 P"/macros/tool_lock.g"   ; Lock the tool
 G1 R2 Z0                     ; Restore prior Z position before tool change was initiated.
                              ; Note: tool tip position is automatically saved to slot 2 upon the start of a tool change.
