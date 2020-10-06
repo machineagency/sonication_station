@@ -2,18 +2,26 @@
 This project wraps a python interface around the existing Duet 3 Socket Interface, turning Jubilee into a plate handling lab automation device for sonication.
 
 ## Connecting to Jubilee
-There are two ways to connect to Jubilee and execute code (1) locally and (2) with a separate PC over a network connection.
+There are two ways to connect to Jubilee and execute code: (1) locally and (2) with a separate PC over a network connection.
 
 They look like this:
 
 ### Local Connection
 <img src="https://github.com/machineagency/sonication_station/blob/master/docs/pics/jubilee_duet3_local_connection.png">
+In this mode, the Python protocol runs on the Raspberry Pi attached to the machine. It is recommended for production use.
 
 ### Closed Network Connection
 <img src="https://github.com/machineagency/sonication_station/blob/master/docs/pics/jubilee_duet3_closed_network_connection.png">
+In this mode, the Python protocol runs on a separate pc with this software package installed. It is useful for testing but not recommended for production.
+
+When running the machine in this mode, note that turning off your PC or losing the network connection will halt the machine mid-execution.
+Furthermore, a laggy network connection will cause the machine to lag.
+To avoid these issues in production, we recommended that running the protocol locally (on the Raspberry Pi) instead of using an arbitrary PC on the same network.
 
 ## Installation
-Clone this repository onto your PC, or a PC devoted to controlling the Sonication station (such as a Raspberry Pi). Then, from this directory (the one with this README in it), install the project via pip with ....
+If you are running this code locally, clone this repository onto Jubilee's attached Raspberry Pi. If you are running it over a network connection, clone it onto your PC.
+
+Then, from within this directory (the one with this README in it), install the project via pip with ....
 ```
 pip install -e .
 ```
@@ -35,27 +43,19 @@ There are 3 ways of interacting with the machine:
 ## Python Script Mode
 After installing this package with pip, you should be able to simply import it in python:
 
+If you are running the code locally, the code will look like this:
 ```python
 from sonication_station.sonication_station import SonicationStation
 with SonicationStation() as jubilee:
     jubilee.sonicate_well(0, 'A', 0, 3, 10, False)
 ```
-Note that the default address (not shown) is localhost, i.e: 127.0.0.1.
-That suggests that we are running this code locally on the Raspberry pi attached to the Duet3 in SBC Mode.
-
-However, it's possible to connect any PC to Jubilee as long as they are on the same network.
-To do so, you will need to know the IP Address of Jubilee on the network that both the PC and Jubilee are sharing. For example, if Jubilee's IP address is 192.168.1.2, then you could connect any PC to Jubilee like this:
-
+If you are running the code over a network from a separate PC, the code may look like this:
 ```python
 from sonication_station.sonication_station import SonicationStation
 with SonicationStation(address="192.168.1.2") as jubilee:
     jubilee.sonicate_well(0, 'A', 0, 3, 10, False)
 ```
-
-Being able to connect any PC to Jubilee over a network is useful for testing small code snippets.
-However, turning off your PC or losing the network connection will halt the machine mid-execution.
-Furthermore, a laggy network connection will cause the machine to lag.
-To avoid these issues, we recommended that you run code locally (on the Raspberry Pi) instead of using an arbitrary PC on the same network.
+Here the above *address* argument is the ip address of Jubilee as it appears on your network.
 
 ## Manual (Maintenance) Mode
 You can interactively control Jubilee through a custom prompt.
