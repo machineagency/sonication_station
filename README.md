@@ -119,7 +119,7 @@ This method is for invoking predefined protocol. Protocol mode may be useful for
 
 Running the machine in protocol mode is simply a matter of telling the machine to read a predefined protocol file.
 ```python
-# Assume that the machien has already been homed and populated with the correct labware for this protocol.
+# Assume that Jubilee is both homed and populated with the correct labware for this protocol.
 from sonication_station.sonication_station import SonicationStation
 with SonicationStation() as jubilee:
     jubilee.execute_protocol_from_file("/path/to/protocol_file.json")
