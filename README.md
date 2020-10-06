@@ -39,6 +39,9 @@ Looking top-down at the plate, plates are indexed as follows:
 When Jubilee is first powered up, it will need to first home all axes. You must issue this command yourself. To home, the deck must be clear of all labware.
 After homing, you may populate the deck and execute protocols can be run. You only need to home once when Jubilee is first turned on, or once after any situation where the machine has lost it's position (from an event like a crash).
 
+### Machine Pre-Protocol Setup
+Once the machine is homed, you can then load labware into the machine. You will need to configure the machine with the labware you add. This can be done interactively in **prompt mode** with the *setup_plate* command. After configuring, the deck configuration can be saved to a file. If the same labware is used for a different protocol, you can reuse this file instead of reconfiguring the deck.
+
 ### Ending Machine State
 All tools must be put away before Jubilee is powered off. This is the default behavior if you run the code inside a *with* statement. In any situation where the Jubilee was powered off in an emergency, you must remove any active tools on Jubilee's carriage before powering it back on.
 
@@ -65,7 +68,7 @@ with SonicationStation(address="192.168.1.2") as jubilee:
 ```
 Here the above *address* argument is the ip address of Jubilee as it appears on your network.
 
-## Manual (Maintenance) Mode
+## Prompt (Maintenance) Mode
 You can interactively control Jubilee through a custom prompt.
 To interact with the prompt, spin it up from the python shell with:
 
@@ -164,4 +167,40 @@ So far, only one operation **sonicate_well**, is implemented. the options are as
 * **seconds:** time in seconds to run the sonicator
 * **autoclean**: (boolean), whether or not to run a predefined cleaning protocol.
 
-Note that if **autoclean** is set to true, a cleaning protocol must be defined in the machine configuration. Cleanin protocols can also be defined in manual mode.
+Note that if **autoclean** is set to true, a cleaning protocol must be defined in the machine configuration. Cleanin protocols can also be defined in prompt mode.
+
+## Deck Configuration
+Before running a protocol, Jubilee's deck must be configured with the labware that the protocol needs. Specifically, Jubilee needs to know:
+* for each piece of labware
+    * the well count (12 \[scintillation vile holder\], 48, 96, etc)
+    * the XY location of the labware
+    * the deck slot number
+    * the height of the labware
+* a minimum height at which all tools can safely travel over all labware currently loaded on the deck (the *safe_z* height).
+
+### Safe Z Height
+The *safe_z* height is the height at which the tip of any tool can safely clear the tallest labware without crashing into it. It is defined in mm as the distance of the active tool tip and the deck plate surface.
+
+If the machine is homed, you can measure the current tool tip height by issuing the **position** command.
+```
+>>> position
+[150.0, 150.0, 65.0]
+>>> 
+```
+Here the XYZ coordinates are 150, 150, 65mm respectively.
+
+You set the *safe_z* height in **prompt mode** like so:
+```
+>>> safe_z z=65
+```
+
+You can read back the *safe_z* by simply entering *safe_z* without arguments
+```
+>>> safe_z
+65
+>>>
+```
+
+You can add a piece of labware into Jubilee's configuration by running the *setup_plate* command. This will drop you into an interactive session where the machine will walk you through the setup.
+
+When the machine is configured, you can save your configuration to a file with *save_deck_configuration*. That way, you can run the same protocol again without having to redo this (somewhat tedious) setup.
