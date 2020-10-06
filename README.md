@@ -1,6 +1,17 @@
 ## Intro
 This project wraps a python interface around the existing Duet 3 Socket Interface, turning Jubilee into a plate handling lab automation device for sonication.
 
+## Connecting to Jubilee
+There are two ways to connect to Jubilee and execute code (1) locally and (2) with a separate PC over a network connection.
+
+They look like this:
+
+### Local Connection
+<img src="https://github.com/machineagency/sonication_station/blob/master/docs/pics/jubilee_duet3_local_connection.png">
+
+### Closed Network Connection
+<img src="https://github.com/machineagency/sonication_station/blob/master/docs/pics/jubilee_duet3_closed_network_connection.png">
+
 ## Installation
 Clone this repository onto your PC, or a PC devoted to controlling the Sonication station (such as a Raspberry Pi). Then, from this directory (the one with this README in it), install the project via pip with ....
 ```
@@ -12,7 +23,7 @@ Now you can spin up a connection to Jubilee by importing the driver.
 ## Conventions
 Looking top-down at the plate, plates are indexed as follows:
 
-<img src="https://github.com/machineagency/sonication_station/blob/master/bed_plate_reference.png" width="480">
+<img src="https://github.com/machineagency/sonication_station/blob/master/docs/pics/bed_plate_reference.png" width="480">
 
 
 ## API
