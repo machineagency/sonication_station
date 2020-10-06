@@ -229,7 +229,11 @@ class JubileeMotionController(Inpromptu):
         """Return the index of the current tool."""
         if self._active_tool_index is None: # Starting from a fresh connection.
             try:
-                self._active_tool_index = int(self.gcode("T"))
+                response = self.gcode("T")
+                # On HTTP Interface, we get a string instead of -1 when there are no tools.
+                if response == 'No tool is selected\n':
+                    return -1
+                self._active_tool_index = int(response)
             except ValueError as e:
                 print("Error occurred trying to read current tool!")
                 raise e
@@ -311,13 +315,10 @@ class JubileeMotionController(Inpromptu):
 
 
     def __enter__(self):
-        # home?
         return self
 
     def __exit__(self, *args):
         self.disconnect()
-        # TODO: park tools maybe?
-        # Move the bed all the way down?
 
 
 if __name__ == "__main__":

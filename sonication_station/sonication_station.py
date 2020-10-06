@@ -11,8 +11,8 @@ from math import sqrt, acos, asin, cos, sin
 from functools import wraps
 from threading import Thread, Lock
 from inpromptu import cli_method, UserInputError
-from jubilee_controller import JubileeMotionController, MachineStateError
-from sonicator import Sonicator
+from .jubilee_controller import JubileeMotionController, MachineStateError
+from .sonicator import Sonicator
 
 
 def protocol_method(func):
@@ -61,6 +61,8 @@ class SonicationStation(JubileeMotionController):
 
     CAMERA_FOCAL_LENGTH_OFFSET = 19
 
+    IDLE_Z_HEIGHT = 150
+
     # TODO: this info should be read from the machine model.
     CAMERA_TOOL_INDEX = 0
     SONICATOR_TOOL_INDEX = 1
@@ -69,7 +71,8 @@ class SonicationStation(JubileeMotionController):
     BLANK_DECK_CONFIGURATION = \
         {"plates": {},              # plate type and location, keyed by deck index in str format.
          "safe_z": None,            # retract height before moving around in XY.
-         "cleaning_config": {}    # specs and protocol for cleaning.
+         "idle_z": IDLE_Z_HEIGHT,    # retraction height when the machine is idle
+         "cleaning_config": {}      # specs and protocol for cleaning.
         }
 
     BLANK_DECK_PLATE_CONFIG = \
@@ -103,7 +106,6 @@ class SonicationStation(JubileeMotionController):
         """Start with sane defaults. Setup Deck configuration."""
 
         super().__init__(address=address, debug=debug, simulated=simulated)
-        print(self.__class__.SPLASH)
         # Pull Deck Configuration if one is specified. Make a blank one otherwise.
         self.deck_config = copy.deepcopy(self.__class__.BLANK_DECK_CONFIGURATION)
         if deck_config_filepath:
@@ -201,6 +203,7 @@ class SonicationStation(JubileeMotionController):
         response = input("WARNING: is the deck clear of plates? [y/n]")
         if response.lower() in ["y", "yes"]:
             super().home_all()
+            self.move_xyz_absolute(z=self.deck_config["idle_z"])
         else:
             print("Aborting homing. Please remove all plates from the deck first.")
 
@@ -544,11 +547,19 @@ class SonicationStation(JubileeMotionController):
                 self.sonicate_well(3, row, col, 1, 2)
 
     def __enter__(self):
-      return self
+        # Home?
+        # move to the safe Z height?
+        return self
 
     def __exit__(self, *args):
-      super().__exit__(args)
-      self.disable_live_video()
+        self.park_tool()
+        self.disable_live_video()
+        self.move_xyz_absolute(z=self.deck_config["idle_z"])
+        super().__exit__(args)
+
+    def cmdloop(self):
+        print(self.__class__.SPLASH)
+        super().cmdloop()
 
 
 if __name__ == "__main__":

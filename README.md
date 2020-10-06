@@ -15,7 +15,7 @@ They look like this:
 ## Installation
 Clone this repository onto your PC, or a PC devoted to controlling the Sonication station (such as a Raspberry Pi). Then, from this directory (the one with this README in it), install the project via pip with ....
 ```
-pip install -e .
+pip3 install -e .
 ```
 
 Now you can spin up a connection to Jubilee by importing the driver.
