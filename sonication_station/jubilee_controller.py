@@ -311,10 +311,13 @@ class JubileeMotionController(Inpromptu):
 
 
     def __enter__(self):
-      return self
+        # home?
+        return self
 
     def __exit__(self, *args):
-      self.disconnect()
+        self.disconnect()
+        # TODO: park tools maybe?
+        # Move the bed all the way down?
 
 
 if __name__ == "__main__":

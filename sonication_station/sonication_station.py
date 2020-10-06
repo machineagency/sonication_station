@@ -98,9 +98,11 @@ class SonicationStation(JubileeMotionController):
 """
 
 
-    def __init__(self, debug=False, simulated=False, deck_config_filepath="./config.json"):
+    def __init__(self, address=JubileeMotionController.LOCALHOST,
+                 debug=False, simulated=False, deck_config_filepath="./config.json"):
         """Start with sane defaults. Setup Deck configuration."""
-        super().__init__(debug=debug, simulated=simulated)
+
+        super().__init__(address=address, debug=debug, simulated=simulated)
         print(self.__class__.SPLASH)
         # Pull Deck Configuration if one is specified. Make a blank one otherwise.
         self.deck_config = copy.deepcopy(self.__class__.BLANK_DECK_CONFIGURATION)
