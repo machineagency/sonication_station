@@ -115,8 +115,16 @@ To get help on any command, simply type:
 ## Protocol Mode
 This method is for invoking predefined protocol. Protocol mode may be useful for generating a series of plate operations programmatically from another program and then simply executing them on the Sonication Station. Protocols consist of a series of sonication commands executed sequentially.
 
+Running the machine in protocol mode is simply a matter of telling the machine to read a predefined protocol file.
+```python
+# Assume that the machien has already been homed and populated with the correct labware for this protocol.
+from sonication_station.sonication_station import SonicationStation
+with SonicationStation() as jubilee:
+    jubilee.execute_protocol_from_file("/path/to/protocol_file.json")
+```
+
 ### Protocol API
-A sample protocol looks like this:
+Under the hood, a protocol file is a json file. A sample protocol looks like this:
 ```json
 {
    "protocol": [
@@ -145,6 +153,7 @@ A sample protocol looks like this:
    ]
 }
 ```
+Here, the protocol contains one important field *protocol*, which is a list of operations that will be executed sequentially.
 So far, only one operation **sonicate_well**, is implemented. the options are as follows:
 * **deck_index:** the deck index of the plate
 * **row_letter:** the row index on the plate, indicated by letter
@@ -154,11 +163,3 @@ So far, only one operation **sonicate_well**, is implemented. the options are as
 * **autoclean**: (boolean), whether or not to run a predefined cleaning protocol.
 
 Note that if **autoclean** is set to true, a cleaning protocol must be defined in the machine configuration. Cleanin protocols can also be defined in manual mode.
-
-### Running the machine in Protocol Mode
-```python
-from sonication_station.sonication_station import SonicationStation
-with SonicationStateion() as jubilee:
-    jubilee.home_all()
-    jubile.execute_protocol_from_file("path/to/file.json")
-```
