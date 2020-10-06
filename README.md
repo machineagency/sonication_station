@@ -203,7 +203,7 @@ You can read back the *safe_z* by simply entering *safe_z* without arguments
 >>>
 ```
 
-## Plate Setup
+### Plate Setup
 You can add a piece of labware into Jubilee's configuration by running the *setup_plate* command. This will drop you into an interactive session where the machine will walk you through the setup.
 
 When the machine is configured, you can save your configuration to a file with *save_deck_configuration*. That way, you can run the same protocol again without having to redo this (somewhat tedious) setup.
