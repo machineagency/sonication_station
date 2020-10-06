@@ -33,6 +33,12 @@ Looking top-down at the plate, plates are indexed as follows:
 
 <img src="https://github.com/machineagency/sonication_station/blob/master/docs/pics/bed_plate_reference.png" width="480">
 
+### Starting Machine State
+When Jubilee is first powered up, it will need to first home all axes. You must issue this command yourself. To home, the deck must be clear of all labware.
+After homing, you may populate the deck and execute protocols can be run. You only need to home once when Jubilee is first turned on, or once after any situation where the machine has lost it's position (from an event like a crash).
+
+### Ending Machine State
+All tools must be put away before Jubilee is powered off. This is the default behavior if you run the code inside a *with* statement. In any situation where the Jubilee was powered off in an emergency, you must remove any active tools on Jubilee's carriage before powering it back on.
 
 ## API
 There are 3 ways of interacting with the machine:
