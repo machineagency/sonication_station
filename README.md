@@ -1,3 +1,5 @@
+If you're looking for a standard operating procedure, check out the [quickstart](docs/quickstart.md).
+
 ## Intro
 This project wraps a python interface around the existing Duet 3 Socket Interface, turning Jubilee into a plate handling lab automation device for sonication.
 
