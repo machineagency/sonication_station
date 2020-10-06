@@ -178,10 +178,12 @@ Before running a protocol, Jubilee's deck must be configured with the labware th
     * the height of the labware
 * a minimum height at which all tools can safely travel over all labware currently loaded on the deck (the *safe_z* height).
 
+This configuration must be done in **prompt mode**.
+
 ### Safe Z Height
 The *safe_z* height is the height at which the tip of any tool can safely clear the tallest labware without crashing into it. It is defined in mm as the distance of the active tool tip and the deck plate surface.
 
-If the machine is homed, you can measure the current tool tip height by issuing the **position** command.
+If the machine is homed, you can measure the current tool tip height by issuing the *position* command.
 ```
 >>> position
 [150.0, 150.0, 65.0]
@@ -201,6 +203,7 @@ You can read back the *safe_z* by simply entering *safe_z* without arguments
 >>>
 ```
 
+## Plate Setup
 You can add a piece of labware into Jubilee's configuration by running the *setup_plate* command. This will drop you into an interactive session where the machine will walk you through the setup.
 
 When the machine is configured, you can save your configuration to a file with *save_deck_configuration*. That way, you can run the same protocol again without having to redo this (somewhat tedious) setup.
