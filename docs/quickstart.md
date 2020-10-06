@@ -2,9 +2,12 @@
 
 The General Standard Operating Procedure for running a protocol on Jubilee:
 
-## Standard Operating Procedure
+## Standard Operating Procedure for Production Use
+Assumes procedures will run locally on the attached Raspberry Pi.
+
 1. Power on the machine without labware
 1. Home the machine
+1. If code was written elsewhere, upload it to the machine with a USB drive.
 1. Configure the deck plate or use an existing deck plate configuration file.
 1. Populate the deck with labware
 1. Either:
