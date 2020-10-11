@@ -482,11 +482,10 @@ class SonicationStation(JubileeMotionController):
             return
         print("Starting camera feed.")
         script_name = os.path.join(os.path.dirname(__file__), 'launch_camera_alignment_feed.sh')
-        #self.discarded_cam_output = open(os.devnull, 'w')
+        self.discarded_cam_output = open(os.devnull, 'w')
         self.cam_feed_process = \
             subprocess.Popen(script_name, shell=True,
-                             preexec_fn=os.setsid)
-                             #preexec_fn=os.setsid, stderr=self.discarded_cam_output)
+                             preexec_fn=os.setsid, stderr=self.discarded_cam_output)
 
 
 
