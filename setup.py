@@ -22,5 +22,8 @@ setuptools.setup(
         "Operating System :: POSIX :: Linux",
     ],
     python_requires='>=3.6',
+    data_files= [('script_contents', ['sonication_station/launch_camera_alignment_feed.sh',
+                                      'sonication_station/web_video_feed/stream_simple.html',
+                                      'sonication_station/web_video_feed/overlay.png'])],
     install_requires=[]
 )

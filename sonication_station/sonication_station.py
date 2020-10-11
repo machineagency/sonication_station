@@ -185,14 +185,14 @@ class SonicationStation(JubileeMotionController):
     def pickup_tool(self, tool_index: int):
         """Pick up the tool specified by tool index."""
         super().pickup_tool(tool_index)
-        if tool_index == self.__class__.CAMERA_TOOL_INDEX:
-            self.enable_live_video()
+        #if tool_index == self.__class__.CAMERA_TOOL_INDEX:
+        #    self.enable_live_video()
 
     @cli_method
     def park_tool(self):
         """Park the current tool, but move up to safe_z height first"""
-        if self.active_tool_index == self.__class__.CAMERA_TOOL_INDEX:
-            self.disable_live_video()
+        #if self.active_tool_index == self.__class__.CAMERA_TOOL_INDEX:
+        #    self.disable_live_video()
         self.move_xy_absolute()
         super().park_tool()
 
@@ -474,18 +474,23 @@ class SonicationStation(JubileeMotionController):
             fn(**kwargs)
 
 
+    @cli_method
     def enable_live_video(self):
         """Enables the video feed."""
         if self.cam_feed_process:
             print("Camera feed already started.")
             return
         print("Starting camera feed.")
-        self.discarded_cam_output = open(os.devnull, 'w')
+        script_name = os.path.join(os.path.dirname(__file__), 'launch_camera_alignment_feed.sh')
+        #self.discarded_cam_output = open(os.devnull, 'w')
         self.cam_feed_process = \
-            subprocess.Popen("./launch_camera_alignment_feed.sh", shell=True,
-                             preexec_fn=os.setsid, stderr=self.discarded_cam_output)
+            subprocess.Popen(script_name, shell=True,
+                             preexec_fn=os.setsid)
+                             #preexec_fn=os.setsid, stderr=self.discarded_cam_output)
 
 
+
+    @cli_method
     def disable_live_video(self):
         """Disables the video feed."""
         if self.cam_feed_process:
@@ -552,9 +557,10 @@ class SonicationStation(JubileeMotionController):
         return self
 
     def __exit__(self, *args):
-        self.park_tool()
         self.disable_live_video()
-        self.move_xyz_absolute(z=self.deck_config["idle_z"])
+        if all(self.axes_homed):
+            self.park_tool()
+            self.move_xyz_absolute(z=self.deck_config["idle_z"])
         super().__exit__(args)
 
     def cmdloop(self):
