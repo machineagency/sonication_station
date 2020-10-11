@@ -2,9 +2,10 @@
 
 echo "Launching Video Feed."
 IP_ADDR="$( hostname -I | head -n1 | awk '{print $1;}' )"
-#STREAM_URL="http://$IP_ADDR:8080/stream_simple.html"
+EXTERNAL_STREAM_URL="http://$IP_ADDR:8080/stream_simple.html"
 STREAM_URL="http://127.0.0.1:8080/stream_simple.html"
-echo "Stream will be live at: $STREAM_URL"
+echo "Local stream will be live at: $STREAM_URL"
+echo "External Stream (from another PC on this netowork) will be live at: $EXTERNAL_STREAM_URL"
 
 # https://stackoverflow.com/questions/59895/how-to-get-the-source-directory-of-a-bash-script-from-within-the-script-itself
 # Second answer.
