@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Driver for Controlling Jubilee"""
-import websocket # for reading the machine model
+#import websocket # for reading the machine model
 import requests # for issuing commands
 import json
 import time
@@ -55,7 +55,7 @@ class JubileeMotionController(Inpromptu):
 
 
     def connect(self):
-        """Connect to Jubilee over the default unix socket."""
+        """Connect to Jubilee over http."""
         if self.simulated:
             return
         # Do the equivalent of a ping to see if the machine is up.
@@ -68,8 +68,6 @@ class JubileeMotionController(Inpromptu):
             #pprint.pprint(json.loads(requests.get("http://127.0.0.1/machine/status").text))
             # TODO: recover absolute/relative from object model instead of enforcing it here.
             self._set_absolute_moves(force=True)
-            if self.debug:
-                print(f"received: {self.axes_homed}")
         except json.decoder.JSONDecodeError as e:
             raise MachineStateError("DCS not ready to connect.") from e
         except requests.exceptions.Timeout as e:
@@ -84,11 +82,20 @@ class JubileeMotionController(Inpromptu):
             print(f"sending: {cmd}")
         if self.simulated:
             return None
+        # RRF3 Only
         response = requests.post(f"http://{self.address}/machine/code", data=f"{cmd}", timeout=timeout).text
         if self.debug:
             print(f"received: {response}")
             #print(json.dumps(r, sort_keys=True, indent=4, separators=(',', ':')))
         return response
+
+
+    def download_file(self, filepath: str = None):
+        """Download the file into a file object. Full filepath must be specified."""
+        # RRF3 Only
+        file_contents = requests.get(f"http://{self.address}/machine/file/",
+                                 params={"name": filepath}, timeout=timeout).text
+        return file_contents
 
 
     @cli_method
