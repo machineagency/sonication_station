@@ -104,17 +104,23 @@ class SonicationStation(JubileeMotionController):
     def __init__(self, address=JubileeMotionController.LOCALHOST,
                  debug=False, simulated=False, deck_config_filepath="./config.json"):
         """Start with sane defaults. Setup Deck configuration."""
-
         super().__init__(address=address, debug=debug, simulated=simulated)
+
+        # Save the deck filepath in case we want to save to it later.
+        self.deck_config_filepath = deck_config_filepath
         # Pull Deck Configuration if one is specified. Make a blank one otherwise.
         self.deck_config = copy.deepcopy(self.__class__.BLANK_DECK_CONFIGURATION)
         if deck_config_filepath:
             try:
                 self.load_deck_config(deck_config_filepath)
             except FileNotFoundError:
+                # Reject the filepath which did not work.
+                self.deck_config_filepath = None
                 print(f"Could not load deck plate configuration from: {deck_config_filepath}. "
                       "No file present.")
             except json.decoder.JSONDecodeError:
+                # Reject the file which did not work.
+                self.deck_config_filepath = None
                 print(f"Error parsing the configuration from: {deck_config_filepath}. "
                        "File could have formatted incorrectly.")
 
@@ -237,19 +243,39 @@ class SonicationStation(JubileeMotionController):
 
 
     @cli_method
-    def load_deck_config(self, file_path: str = "./config.json"):
-        """Load a specified configuration of plates on the deck."""
-        print(f"Loading deck plate configuration from: {file_path}.")
+    def load_deck_config(self, file_path: str = None):
+        """Load a configuration of plates on the deck from the specified file path.
+        If no file path is specified, reload from initial config file specified on instantiation.
+        If no file path is specified and no initial config file was specified, error out.
+        """
+        if file_path is None and self.deck_config_filepath is None:
+            raise UserInputError("Error: no file path is specified from which to load the deck configuration.")
+        if file_path is None:
+            # This is effectively a "reload."
+            file_path = self.deck_config_filepath
+            print(f"Reloading deck configuration. Overriding any unsaved configuration changes.")
         with open(file_path, 'r') as config_file:
+            print(f"Loading deck configuration from {file_path}.")
             self.deck_config = json.loads(config_file.read())
+            # Update the load location so we default to saving the file we loaded from.
+            file_path = self.deck_config_filepath
 
 
     @cli_method
-    def save_deck_config(self, file_path: str = "./config.json"):
-        """Save the current configuration of plates on the deck to a file."""
+    def save_deck_config(self, file_path: str = None):
+        """Save the current configuration of plates on the deck to a file.
+        If no filepath is specified, save from the initial config file specified on instantiation.
+        If no filepath is specified and no initial config file was specified.
+        """
+        if file_path is None and self.deck_config_filepath is None:
+            raise UserInputError("Error: no file path is specified from which to save the deck configuration.")
+        if file_path is None:
+            file_path = self.deck_config_filepath
         with open(file_path, 'w+') as config_file:
             json.dump(self.deck_config, config_file, indent=4)
             print(f"Saving configuration to {file_path}.")
+            # Update the save location so we default to saving the file we loaded from.
+            file_path = self.deck_config_filepath
 
 
     @cli_method
