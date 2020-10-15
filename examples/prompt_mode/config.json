@@ -79,6 +79,26 @@
             "well_count": 12,
             "liquid_level": {},
             "plate_height": 63.625
+        },
+        "2": {
+            "id": "",
+            "corner_well_centroids": [
+                [
+                    264.125,
+                    177.25
+                ],
+                [
+                    180.125,
+                    177.25
+                ],
+                [
+                    179.125,
+                    121.0
+                ]
+            ],
+            "well_count": 12,
+            "liquid_level": {},
+            "plate_height": 63.0
         }
     },
     "idle_z": 150.0,

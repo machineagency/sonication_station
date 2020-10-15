@@ -54,6 +54,12 @@ class SonicationStation(JubileeMotionController):
                            6: (2, 3),
                            12: (3, 4)}
     DECK_PLATE_COUNT = 6
+    DECK_PLATE_NOMINAL_CORNERS = [(287.75, 289.75),
+                                  (148.25, 289.5),
+                                  (287.625, 192.25),
+                                  (148.125, 192),
+                                  (287.75, 94.688),
+                                  (148.312, 94.5)]
 
     # TODO: use these later to rapid to the well corner during plate locating.
     # Derived from CAD model.
@@ -398,6 +404,9 @@ class SonicationStation(JubileeMotionController):
             # Move such that the well plates are in focus.
             self.move_xyz_absolute(z=(self.safe_z + self.__class__.CAMERA_FOCAL_LENGTH_OFFSET))
             self.pickup_tool(self.__class__.CAMERA_TOOL_INDEX)
+            # Rapid to the corner of this deck index.
+            self.move_xyz_absolute(x=self.__class__.DECK_PLATE_NOMINAL_CORNERS[deck_index][0],
+                                   y=self.__class__.DECK_PLATE_NOMINAL_CORNERS[deck_index][1])
 
             # Collect three "teach points" for this plate.
             self.input("Commencing manual zeroing. Press Enter when ready or 'CTRL-C' to abort")
