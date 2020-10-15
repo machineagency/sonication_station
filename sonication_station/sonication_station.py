@@ -191,13 +191,17 @@ class SonicationStation(JubileeMotionController):
     def pickup_tool(self, tool_index: int):
         """Pick up the tool specified by tool index."""
         super().pickup_tool(tool_index)
+        if self.active_tool_index == SonicationStation.CAMERA_TOOL_INDEX:
+            self.enable_live_video()
 
     @cli_method
     def park_tool(self):
         """Park the current tool, but move up to safe_z height first."""
-        self.move_xy_absolute()
         if self.active_tool_index < 0:
             return
+        if self.active_tool_index == SonicationStation.CAMERA_TOOL_INDEX:
+            self.disable_live_video()
+        self.move_xy_absolute()
         super().park_tool()
 
 
@@ -498,7 +502,6 @@ class SonicationStation(JubileeMotionController):
             fn(**kwargs)
 
 
-    @cli_method
     def enable_live_video(self):
         """Enables the video feed."""
         if self.cam_feed_process:
@@ -512,8 +515,6 @@ class SonicationStation(JubileeMotionController):
                              preexec_fn=os.setsid, stderr=self.discarded_cam_output)
 
 
-
-    @cli_method
     def disable_live_video(self):
         """Disables the video feed."""
         if self.cam_feed_process:
@@ -565,18 +566,7 @@ class SonicationStation(JubileeMotionController):
         return x_transformed, y_transformed
 
 
-    @cli_method
-    def demo(self):
-        time.sleep(5)
-        rows = ["A", "B", "C"]
-        columns = [1, 2, 3, 4]
-        for row in rows:
-            for col in columns:
-                self.sonicate_well(3, row, col, 1, 2)
-
     def __enter__(self):
-        # Home?
-        # move to the safe Z height?
         return self
 
     def __exit__(self, *args):
