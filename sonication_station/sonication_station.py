@@ -187,37 +187,12 @@ class SonicationStation(JubileeMotionController):
         super().pickup_tool(tool_index)
 
     @cli_method
-    def park_tool(self, ignore_restore_position=False):
-        """Park the current tool, but move up to safe_z height first.
-        If ignore_restore_position is True, do not apply any Z restoration as specified by G60 in the macros.
-        Useful for parking the tool at the very end of a routine.
-        """
+    def park_tool(self):
+        """Park the current tool, but move up to safe_z height first."""
         self.move_xy_absolute()
-        if self.active_tool < 0:
+        if self.active_tool_index < 0:
             return
-        if not ignore_restore_position:
-            super().park_tool()
-        # This case is ugly. We need to read the treeX.g file and tweak any lines that involve G60.
-        else:
-            tfreeX = self.download_file(f'tfree{self.active_tool_index}.g')
-            tfreeX_lines = tfreeX.splitlines()
-            for line in tfreeX_lines:
-                # Issue all non-G0/G1-restore-related commands without modifying them. (Skip comments too.)
-                if not line.startswith(("G0 R", "G1 R", ";")):
-                    self.gcode(line)
-                else:
-                    line = line.split(";")[0] # Get rid of comments.
-                    cmd_with_args = line.split()
-                    adjusted_line += cmd_with_args[0] # Add back "G0"
-                    adjusted_line += f" {cmd_with_args[1]}" # Add back "Rx"
-                    for param in cmd_with_args[2:]:
-                        if param.startswith("Z"): # Skip restoration of Z axis.
-                            continue
-                        adjusted_line += f" {param}"
-                    self.gcode(adjusted_line)
-            # Finally, issue a T-1 P0 to tell the machine that no tools are loaded.
-            self.gcode("T-1 P0")
-
+        super().park_tool()
 
 
     @cli_method
@@ -581,7 +556,7 @@ class SonicationStation(JubileeMotionController):
     def __exit__(self, *args):
         self.disable_live_video()
         if all(self.axes_homed):
-            self.park_tool(ignore_restore_position=True)
+            self.park_tool()
             self.move_xyz_absolute(z=self.deck_config["idle_z"])
         super().__exit__(args)
 
