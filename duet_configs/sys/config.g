@@ -24,6 +24,9 @@ M569 P5 S0                  ; Drive 5 direction | Back Z
 
 M569 P2 S1                  ; Drive 2 direction | Toolchanger Actuator
 
+; Machine Mode
+M453                                    ; Select CNC Mode. (Does not restore Z after releasing tool)
+
 ; Joint Kinematics
 M669 K1                                 ; CoreXY mode
 
