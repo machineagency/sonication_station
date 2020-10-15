@@ -191,17 +191,14 @@ class SonicationStation(JubileeMotionController):
     def pickup_tool(self, tool_index: int):
         """Pick up the tool specified by tool index."""
         super().pickup_tool(tool_index)
-        #if tool_index == self.__class__.CAMERA_TOOL_INDEX:
-        #    self.enable_live_video()
 
     @cli_method
     def park_tool(self):
-        """Park the current tool, but move up to safe_z height first"""
-        #if self.active_tool_index == self.__class__.CAMERA_TOOL_INDEX:
-        #    self.disable_live_video()
+        """Park the current tool, but move up to safe_z height first."""
         self.move_xy_absolute()
+        if self.active_tool_index < 0:
+            return
         super().park_tool()
-
 
 
     @cli_method
@@ -459,7 +456,8 @@ class SonicationStation(JubileeMotionController):
         if self.active_tool_index != self.__class__.SONICATOR_TOOL_INDEX:
             self.pickup_tool(self.__class__.SONICATOR_TOOL_INDEX)
 
-        row_index = ord(row_letter.upper()) - 65 # map row letters to numbers.
+        row_index = ord(row_letter.upper()) - 65 # convert letters to numbers.
+        column_index -=1 # Convert 1-indexed plates to 0-indexing.
         x,y = self._get_well_position(deck_index, row_index, column_index)
 
         print(f"Moving to: ({x:.3f}, {y:.3f})")

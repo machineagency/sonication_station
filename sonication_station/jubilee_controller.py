@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Driver for Controlling Jubilee"""
-import websocket # for reading the machine model
+#import websocket # for reading the machine model
 import requests # for issuing commands
 import json
 import time
@@ -46,16 +46,16 @@ class JubileeMotionController(Inpromptu):
         self.command_ws = None
         self.wake_time = None # Next scheduled time that the update thread updates.
         self.absolute_moves = True
+        self._active_tool_index = None # Cached value under the @property.
+        self.axes_homed = [False]*4 # Starter value before connecting.
         self.connect()
-        self.axes_homed = [False]*4
-        self._active_tool_index = None # Cached value.
         if reset:
             self.reset() # also does a reconnect.
         self._set_absolute_moves(force=True)
 
 
     def connect(self):
-        """Connect to Jubilee over the default unix socket."""
+        """Connect to Jubilee over http."""
         if self.simulated:
             return
         # Do the equivalent of a ping to see if the machine is up.
@@ -64,12 +64,10 @@ class JubileeMotionController(Inpromptu):
         try:
             # "Ping" the machine by updating the only cacheable information we care about.
             self.axes_homed = json.loads(self.gcode("M409 K\"move.axes[].homed\"", timeout=1))["result"][:4]
-            # TODO: get active tool index!
+            self.active_tool_index # This is an @property that hits the API on the first try.
             #pprint.pprint(json.loads(requests.get("http://127.0.0.1/machine/status").text))
             # TODO: recover absolute/relative from object model instead of enforcing it here.
             self._set_absolute_moves(force=True)
-            if self.debug:
-                print(f"received: {self.axes_homed}")
         except json.decoder.JSONDecodeError as e:
             raise MachineStateError("DCS not ready to connect.") from e
         except requests.exceptions.Timeout as e:
@@ -78,17 +76,28 @@ class JubileeMotionController(Inpromptu):
             print("Connected.")
 
 
-    def gcode(self, cmd: str = "", timeout=None):
+    def gcode(self, cmd: str = "", timeout: float = None):
         """Send a GCode cmd; return the response"""
         if self.debug or self.simulated:
             print(f"sending: {cmd}")
         if self.simulated:
             return None
+        # RRF3 Only
         response = requests.post(f"http://{self.address}/machine/code", data=f"{cmd}", timeout=timeout).text
         if self.debug:
             print(f"received: {response}")
             #print(json.dumps(r, sort_keys=True, indent=4, separators=(',', ':')))
         return response
+
+
+    def download_file(self, filepath: str = None, timeout: float = None):
+        """Download the file into a file object. Full filepath must be specified.
+        Example: /sys/tfree0.g
+        """
+        # RRF3 Only
+        file_contents = requests.get(f"http://{self.address}/machine/file{filepath}",
+                                     timeout=timeout).text
+        return file_contents
 
 
     @cli_method
@@ -231,9 +240,14 @@ class JubileeMotionController(Inpromptu):
             try:
                 response = self.gcode("T")
                 # On HTTP Interface, we get a string instead of -1 when there are no tools.
-                if response == 'No tool is selected\n':
+                if response.startswith('No tool'):
                     return -1
-                self._active_tool_index = int(response)
+                # On HTTP Interface, we get a string instead of the tool index.
+                elif response.startswith('Tool'):
+                    # Recover from the string: 'Tool X is selected.'
+                    self._active_tool_index = int(response.split()[1])
+                else:
+                    self._active_tool_index = int(response)
             except ValueError as e:
                 print("Error occurred trying to read current tool!")
                 raise e
