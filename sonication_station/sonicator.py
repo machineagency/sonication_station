@@ -17,10 +17,10 @@ class Sonicator(object):
         self.sonicator_enable.value = False
         self.dac.normalized_value = 0.50
 
-    def sonicate(self, exposure_time: float = 1.0, power_percentage: float = 0.4):
+    def sonicate(self, exposure_time: float = 1.0, power: float = 0.4):
         """enable the sonicator at the power level for the exposure time."""
         # TODO: clamp this percentage.
-        self.dac.normalized_value = power_percentage
+        self.dac.normalized_value = power
         self.sonicator_enable.value = True
         time.sleep(exposure_time)
         self.sonicator_enable.value = False

@@ -454,8 +454,18 @@ class SonicationStation(JubileeMotionController):
     @requires_safe_z
     @requires_cleaning_station
     def sonicate_well(self, deck_index: int, row_letter: str, column_index: int,
-                      plunge_depth: float, seconds: float, autoclean: bool = True):
-        """Sonicate one well at a specified depth for a given time. Then clean the tip."""
+                      plunge_depth: float, seconds: float, power: float, autoclean: bool = True):
+        """Sonicate one well at a specified depth for a given time. Then clean the tip.
+            deck_index: deck index where the plate lives
+            row_letter: row coordinate to sonicate at
+            column_index: number coordinate to sonicate at
+            plunge_depth: depth (in mm) to plunge from the top of the plate.
+            seconds: time (in sec) to sonicate for
+            power: sonicator power level ranging from 0.4 (default, min) through 1.0 (max).
+            autoclean: whether or not to perform the predefined autoclean routine.
+
+            Note: sonicator does not turn on below power level of 0.4.
+        """
 
         # Json dicts enforce that keys must be strings.
         deck_index_str = str(deck_index)
@@ -477,7 +487,7 @@ class SonicationStation(JubileeMotionController):
         self.move_xy_absolute(x,y) # Position over the well at safe z height.
         self.move_xyz_absolute(z=plunge_height, wait=True)
         print(f"Sonicating for {seconds} seconds!!")
-        self.sonicator.sonicate(seconds)
+        self.sonicator.sonicate(seconds, power)
         print("done!")
         self.move_xy_absolute() # leave the machine at the safe height.
         if autoclean:
