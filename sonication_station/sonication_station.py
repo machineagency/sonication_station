@@ -322,6 +322,7 @@ class SonicationStation(JubileeMotionController):
                                  "column_index": col,
                                  "plunge_depth": plunge_depth,
                                  "seconds": plunge_time,
+                                 "power": power,
                                  "autoclean": False}} # Do not set to True or infinite recursion.
                 protocol.append(cmd)
                 user_response = self.input("Add another bathing cycle? [y/n]")
