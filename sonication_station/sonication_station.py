@@ -224,26 +224,28 @@ class SonicationStation(JubileeMotionController):
     @cli_method
     @requires_safe_z
     def check_plate_registration_points(self, plate_index: int):
-        """Move to predefined starting location for deck plate."""
+        """Move to each teach point for the deck plate."""
+        REG_POINT = ["Bottom Left", "Bottom Right", "Upper Right"]
+
         if plate_index < 0 or plate_index >= self.__class__.DECK_PLATE_COUNT:
             raise UserInputError(f"Error: deck plates must fall \
                 within the range: [0, {plate_index}).")
+
         if self.active_tool_index != self.__class__.CAMERA_TOOL_INDEX:
-            self.pickup_tool(self.__class__.CAMERA)
+            self.pickup_tool(self.__class__.CAMERA_TOOL_INDEX)
 
         if self.position[2] < self.safe_z:
             self.move_xyz_absolute(z=self.safe_z)
 
         try:
             self.enable_live_video()
-            for x,y in self.deck_config['plates'][plate_index]['corner_well_centroids']:
-                if x is None or y is None:
-                    raise UserInputError(f"Error: this reference position \
-                        for deck plate {plate_index} is not defined.")
-                self.move_xy_absolute(x, y)
+            for index, coords in enumerate(self.deck_config['plates'][str(plate_index)]['corner_well_centroids']):
+                if coords is None or coords[0] is None or coords[1] is None:
+                    raise UserInputError(f"Error: this reference position for deck plate {plate_index} is not defined.")
+                self.move_xy_absolute(coords[0], coords[1], wait=True)
                 # TODO: adjust focus??
-                # TODO: implement adjustments in this situation?
-                self.input("Press any key to continue.")
+                # TODO: let user implement adjustments in this situation?
+                self.input(f"Currently positioned at index: {REG_POINT[index]} | {coords}. Press any key to continue.")
         finally:
             self.disable_live_video()
         self.park_tool()
@@ -470,6 +472,9 @@ class SonicationStation(JubileeMotionController):
 
         # Json dicts enforce that keys must be strings.
         deck_index_str = str(deck_index)
+
+        if deck_index_str not in self.deck_config['plates']:
+            raise UserInputError(f"Error: deck plate {deck_index} is not configured.")
 
         plate_height = self.deck_config['plates'][deck_index_str]['plate_height']
         plunge_height = plate_height - plunge_depth

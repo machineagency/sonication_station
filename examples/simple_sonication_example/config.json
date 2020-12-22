@@ -44,41 +44,61 @@
             "id": "",
             "corner_well_centroids": [
                 [
-                    264.0,
-                    275.0
+                    265.75,
+                    218.75
                 ],
                 [
-                    180.0,
-                    274.0
+                    178.75,
+                    217.75
                 ],
                 [
-                    180.0,
-                    218.0
+                    178.75,
+                    273.75
                 ]
             ],
             "well_count": 12,
             "liquid_level": {},
-            "plate_height": 63.375
+            "plate_height": 65.0
         },
         "1": {
             "id": "",
             "corner_well_centroids": [
                 [
-                    124.875,
-                    274.75
+                    124.25,
+                    219.5
                 ],
                 [
-                    41.375,
-                    274.75
+                    124.25,
+                    274.5
                 ],
                 [
-                    40.719,
-                    218.375
+                    39.75,
+                    274.5
                 ]
             ],
             "well_count": 12,
             "liquid_level": {},
-            "plate_height": 63.625
+            "plate_height": 65.0
+        },
+        "2": {
+            "id": "",
+            "corner_well_centroids": [
+                [
+                    263.625,
+                    121.25
+                ],
+                [
+                    179.375,
+                    121.0
+                ],
+                [
+                    179.375,
+                    177.0
+                ]
+            ],
+            "well_count": 12,
+            "liquid_level": {},
+            "plate_height": 65.0
         }
     },
     "idle_z": 150.0,
@@ -88,22 +108,33 @@
             {
                 "operation": "sonicate_well",
                 "specs": {
-                    "deck_index": 5,
+                    "deck_index": 2,
                     "row_letter": "A",
                     "column_index": 1,
-                    "plunge_depth": 10.0,
-                    "seconds": 3.0,
+                    "plunge_depth": 5.0,
+                    "seconds": 10.0,
                     "autoclean": false
                 }
             },
             {
                 "operation": "sonicate_well",
                 "specs": {
-                    "deck_index": 5,
+                    "deck_index": 2,
                     "row_letter": "A",
                     "column_index": 2,
-                    "plunge_depth": 10.0,
-                    "seconds": 3.0,
+                    "plunge_depth": 5.0,
+                    "seconds": 10.0,
+                    "autoclean": false
+                }
+            },
+            {
+                "operation": "sonicate_well",
+                "specs": {
+                    "deck_index": 2,
+                    "row_letter": "A",
+                    "column_index": 3,
+                    "plunge_depth": 5.0,
+                    "seconds": 10.0,
                     "autoclean": false
                 }
             }

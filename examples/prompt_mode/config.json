@@ -45,60 +45,79 @@
             "corner_well_centroids": [
                 [
                     264.0,
+                    218.75
+                ],
+                [
+                    264.0,
                     275.0
                 ],
                 [
-                    180.0,
-                    274.0
-                ],
-                [
-                    180.0,
-                    218.0
+                    179.5,
+                    274.5
                 ]
             ],
             "well_count": 12,
             "liquid_level": {},
-            "plate_height": 63.375
+            "plate_height": 65.0
         },
         "1": {
             "id": "",
             "corner_well_centroids": [
                 [
-                    124.875,
-                    274.75
+                    124.25,
+                    219.0
                 ],
                 [
-                    41.375,
-                    274.75
+                    124.75,
+                    275.125
                 ],
                 [
-                    40.719,
-                    218.375
+                    39.75,
+                    274.125
                 ]
             ],
             "well_count": 12,
             "liquid_level": {},
-            "plate_height": 63.625
+            "plate_height": 64.125
         },
         "2": {
             "id": "",
             "corner_well_centroids": [
                 [
-                    264.125,
-                    177.25
+                    280.625,
+                    113.25
                 ],
                 [
-                    180.125,
-                    177.25
+                    280.625,
+                    185.25
                 ],
                 [
-                    179.125,
-                    121.0
+                    168.625,
+                    185.25
+                ]
+            ],
+            "well_count": 48,
+            "liquid_level": {},
+            "plate_height": 25.0
+        },
+        "4": {
+            "id": "",
+            "corner_well_centroids": [
+                [
+                    null,
+                    null
+                ],
+                [
+                    null,
+                    null
+                ],
+                [
+                    null,
+                    null
                 ]
             ],
             "well_count": 12,
-            "liquid_level": {},
-            "plate_height": 63.0
+            "liquid_level": {}
         }
     },
     "idle_z": 150.0,
