@@ -329,19 +329,19 @@ class SonicationStation(JubileeMotionController):
                 power = -1
                 while power is not None and (power < 0 or power > 1):
                     power = float(self.input("Enter the sonication power level (0.4 to 1.0). "
-                                             "Press ENTER to skip. "))
+                                             "Press ENTER to take default. "))
                     if power == "":
                         power = None
                 pulse_duty_cycle = -1
                 while pulse_duty_cycle is not None and (pulse_duty_cycle < 0 or pulse_duty_cycle > 1):
                     pulse_duty_cycle = float(self.input("Enter the sonication pulse duty cycle (0.0 to 1.0). "
-                                                        "Press ENTER to skip. "))
+                                                        "Press ENTER to take default. "))
                     if pulse_duty_cycle == "":
                         pulse_duty_cycle = None
                 pulse_interval = -1
-                while pulse_interval is not None and (pulse_inverval < 0 or pulse_interval > 1):
+                while pulse_interval is not None and pulse_interval < 0:
                     pulse_interval = float(self.input("Enter the sonication pulse interval (time in seconds > 0). "
-                                                      "Press ENTER to skip. "))
+                                                      "Press ENTER to take default. "))
                     if pulse_interval == "":
                         pulse_interval = None
                 # This cmd should match the function name and parameters of sonicate_well.
