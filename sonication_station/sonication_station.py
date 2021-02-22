@@ -597,6 +597,7 @@ class SonicationStation(JubileeMotionController):
         return self
 
     def __exit__(self, *args):
+        self.sonicator.__exit__(args)
         self.disable_live_video()
         if all(self.axes_homed):
             self.park_tool()
