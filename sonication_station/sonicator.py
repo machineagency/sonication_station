@@ -20,38 +20,51 @@ class Sonicator(object):
     def sonicate(self, exposure_time: float = 1.0, power: float = 0.4,
                  pulse_duty_cycle: float = 0.5, pulse_interval: float = 1.0):
         """enable the sonicator at the power level for the exposure time."""
-        # TODO: clamp these values.
+        # Quick sanity checks
+        assert 0 <= power <= 1.0, \
+            f"Error: power must be between 0.0 and 1.0. Value specified is: {power}"
+        assert 0 <= pulse_duty_cycle <= 1.0, \
+            f"Error: pulse_duty_cycle must be between 0.0 and 1.0. Value specified is: {pulse_duty_cycle}"
+        assert pulse_interval > 0, \
+            f"Error: pulse_interval must be positive. Value specified is: {pulse_interval}."
+        assert pulse_interval <= exposure_time, \
+            f"Error: pulse_interval cannot exceed exposure time. Value specified is: {pulse_interval}, " \
+            f"but total exposure time is {exposure_time}."
+
         self.dac.normalized_value = power
-        stop_time = exposure_time + time.perf_counter()
         on_interval = pulse_duty_cycle * pulse_interval
         off_interval = (1 - pulse_duty_cycle) * pulse_interval
-        # Accumulate time spent exposing the sonicator to the media.
-        #  Prioritize accumulated time instead of absolute exposure time from the start.
+
+        start_time = time.perf_counter()
+        stop_time = exposure_time + start_time
         while True:
             # On interval.
             curr_time = time.perf_counter()
             if curr_time + on_interval < stop_time:
+                print(f"{time.perf_counter() - start_time :.2f} | Sonicator on.")
                 self.sonicator_enable.value = True
                 time.sleep(on_interval)
             elif stop_time > curr_time: # last time to sleep.
+                print(f"{time.perf_counter() - start_time :.2f} | Sonicator on.")
                 self.sonicator_enable.value = True
                 time.sleep(stop_time - curr_time)
-                break
-            else:
-                break
 
             # Off interval.
             curr_time = time.perf_counter()
             if curr_time + off_interval < stop_time:
+                print(f"{time.perf_counter() - start_time :.2f} | Sonicator off.")
                 self.sonicator_enable.value = False
                 time.sleep(off_interval)
             elif stop_time > curr_time: # last time to sleep.
+                print(f"{time.perf_counter() - start_time :.2f} | Sonicator off.")
                 self.sonicator_enable.value = False
                 time.sleep(stop_time - curr_time)
                 break
             else:
+                print(f"{time.perf_counter() - start_time :.2f} | Sonicator off.")
                 break
 
+        print(f"{time.perf_counter() - start_time :.2f} | Finished sonicating.")
         self.sonicator_enable.value = False
         self.dac.normalized_value = 0
 

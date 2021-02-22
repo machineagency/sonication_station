@@ -132,6 +132,9 @@
                     "column_index": 1,
                     "plunge_depth": 10.0,
                     "seconds": 3.0,
+                    "power": 1.0,
+                    "pulse_duty_cycle": 0.5,
+                    "pulse_interval": 1,
                     "autoclean": false
                 }
             },
@@ -143,6 +146,9 @@
                     "column_index": 2,
                     "plunge_depth": 10.0,
                     "seconds": 3.0,
+                    "power": 1.0,
+                    "pulse_duty_cycle": 0.5,
+                    "pulse_interval": 1,
                     "autoclean": false
                 }
             }

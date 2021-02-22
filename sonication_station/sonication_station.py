@@ -326,7 +326,7 @@ class SonicationStation(JubileeMotionController):
                 while plunge_time < 0:
                     plunge_time = float(self.input("Enter the sonication time (in seconds): "))
                 # These settings have defaults and are optional.
-                power = -1:
+                power = -1
                 while power is not None and (power < 0 or power > 1):
                     power = float(self.input("Enter the sonication power level (0.4 to 1.0). "
                                              "Press ENTER to skip. "))
