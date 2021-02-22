@@ -17,12 +17,41 @@ class Sonicator(object):
         self.sonicator_enable.value = False
         self.dac.normalized_value = 0.50
 
-    def sonicate(self, exposure_time: float = 1.0, power: float = 0.4):
+    def sonicate(self, exposure_time: float = 1.0, power: float = 0.4,
+                 pulse_duty_cycle: float = 0.5, pulse_interval: float = 1.0):
         """enable the sonicator at the power level for the exposure time."""
-        # TODO: clamp this percentage.
+        # TODO: clamp these values.
         self.dac.normalized_value = power
-        self.sonicator_enable.value = True
-        time.sleep(exposure_time)
+        stop_time = exposure_time + time.perf_counter()
+        on_interval = pulse_duty_cycle * pulse_interval
+        off_interval = (1 - pulse_duty_cycle) * pulse_interval
+        # Accumulate time spent exposing the sonicator to the media.
+        #  Prioritize accumulated time instead of absolute exposure time from the start.
+        while True:
+            # On interval.
+            curr_time = time.perf_counter()
+            if curr_time + on_interval < stop_time:
+                self.sonicator_enable.value = True
+                time.sleep(on_interval)
+            elif stop_time > curr_time: # last time to sleep.
+                self.sonicator_enable.value = True
+                time.sleep(stop_time - curr_time)
+                break
+            else:
+                break
+
+            # Off interval.
+            curr_time = time.perf_counter()
+            if curr_time + off_interval < stop_time:
+                self.sonicator_enable.value = False
+                time.sleep(off_interval)
+            elif stop_time > curr_time: # last time to sleep.
+                self.sonicator_enable.value = False
+                time.sleep(stop_time - curr_time)
+                break
+            else:
+                break
+
         self.sonicator_enable.value = False
         self.dac.normalized_value = 0
 

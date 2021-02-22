@@ -314,9 +314,34 @@ class SonicationStation(JubileeMotionController):
                     deck_plates.add(deck_index)
                 row, col_str = well_id_split(self.input("Enter the well location of the bath (i.e: A1, B2, etc.): "))
                 col = int(col_str)
-                plunge_depth = float(self.input("Enter the sonicator plunge depth in mm.\r\n"
-                                          "Plunge depth is the distance measured from the top of the plate: "))
-                plunge_time = float(self.input("Enter the time (in seconds) to activate the sonicator: "))
+
+                # Take cleaning specs with boundary checks since some values can damage the machine/sonicator/etc.
+                plunge_depth = -1
+                while plunge_depth < 0:
+                    plunge_depth = float(self.input("Enter the sonicator plunge depth (in mm).\r\n"
+                                            "Plunge depth is the distance measured from the top of the plate: "))
+                plunge_time = -1
+                while plunge_time < 0:
+                    plunge_time = float(self.input("Enter the sonication time (in seconds): "))
+                # These settings have defaults and are optional.
+                power = -1:
+                while power is not None and (power < 0 or power > 1):
+                    power = float(self.input("Enter the sonication power level (0.4 to 1.0). "
+                                             "Press ENTER to skip. "))
+                    if power == "":
+                        power = None
+                pulse_duty_cycle = -1
+                while pulse_duty_cycle is not None and (pulse_duty_cycle < 0 or pulse_duty_cycle > 1):
+                    pulse_duty_cycle = float(self.input("Enter the sonication pulse duty cycle (0.0 to 1.0). "
+                                                        "Press ENTER to skip. "))
+                    if pulse_duty_cycle == "":
+                        pulse_duty_cycle = None
+                pulse_interval = -1
+                while pulse_interval is not None and (pulse_inverval < 0 or pulse_interval > 1):
+                    pulse_interval = float(self.input("Enter the sonication pulse interval (time in seconds > 0). "
+                                                      "Press ENTER to skip. "))
+                    if pulse_interval == "":
+                        pulse_interval = None
                 # This cmd should match the function name and parameters of sonicate_well.
                 cmd = {"operation": "sonicate_well",
                        "specs": {"deck_index": deck_index,
@@ -325,6 +350,8 @@ class SonicationStation(JubileeMotionController):
                                  "plunge_depth": plunge_depth,
                                  "seconds": plunge_time,
                                  "power": power,
+                                 "pulse_duty_cycle": pulse_duty_cycle,
+                                 "pulse_interval": pulse_interval,
                                  "autoclean": False}} # Do not set to True or infinite recursion.
                 protocol.append(cmd)
                 user_response = self.input("Add another bathing cycle? [y/n]")
@@ -457,7 +484,9 @@ class SonicationStation(JubileeMotionController):
     @requires_safe_z
     @requires_cleaning_station
     def sonicate_well(self, deck_index: int, row_letter: str, column_index: int,
-                      plunge_depth: float, seconds: float, power: float, autoclean: bool = True):
+                      plunge_depth: float, seconds: float,
+                      power: float, pulse_duty_cycle: float, pulse_interval: float,
+                      autoclean: bool = True):
         """Sonicate one well at a specified depth for a given time. Then clean the tip.
             deck_index: deck index where the plate lives
             row_letter: row coordinate to sonicate at
@@ -493,7 +522,7 @@ class SonicationStation(JubileeMotionController):
         self.move_xy_absolute(x,y) # Position over the well at safe z height.
         self.move_xyz_absolute(z=plunge_height, wait=True)
         print(f"Sonicating for {seconds} seconds!!")
-        self.sonicator.sonicate(seconds, power)
+        self.sonicator.sonicate(seconds, power, pulse_duty_cycle, pulse_interval)
         print("done!")
         self.move_xy_absolute() # leave the machine at the safe height.
         if autoclean:
