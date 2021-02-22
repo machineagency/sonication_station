@@ -55,7 +55,7 @@ class Sonicator(object):
         self.sonicator_enable.value = False
         self.dac.normalized_value = 0
 
-    def __exit__(self):
+    def __exit__(self, *args):
         """Cleanup."""
         self.sonicator_enable.value = False
         self.dac.normalized_value = 0

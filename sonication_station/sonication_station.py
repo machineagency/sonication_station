@@ -196,6 +196,8 @@ class SonicationStation(JubileeMotionController):
     @cli_method
     def pickup_tool(self, tool_index: int):
         """Pick up the tool specified by tool index."""
+        # TODO: make sure we are no lower than the MAX Z Height plus tool tip height of the tool we want to grab.
+        # We need to read current position for that check though.
         super().pickup_tool(tool_index)
         if self.active_tool_index == SonicationStation.CAMERA_TOOL_INDEX:
             self.enable_live_video()
@@ -624,6 +626,7 @@ class SonicationStation(JubileeMotionController):
         return self
 
     def __exit__(self, *args):
+        self.sonicator.__exit__(args)
         self.disable_live_video()
         if all(self.axes_homed):
             self.park_tool()
