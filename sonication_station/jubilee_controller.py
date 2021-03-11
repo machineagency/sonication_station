@@ -47,6 +47,8 @@ class JubileeMotionController(Inpromptu):
         self.wake_time = None # Next scheduled time that the update thread updates.
         self.absolute_moves = True
         self._active_tool_index = None # Cached value under the @property.
+        self._tool_z_offsets = None # Cached value under the @property.
+        self._axis_limits = None # Cached value under the @property.
         self.axes_homed = [False]*4 # Starter value before connecting.
         self.connect()
         if reset:
@@ -64,7 +66,20 @@ class JubileeMotionController(Inpromptu):
         try:
             # "Ping" the machine by updating the only cacheable information we care about.
             self.axes_homed = json.loads(self.gcode("M409 K\"move.axes[].homed\"", timeout=1))["result"][:4]
-            self.active_tool_index # This is an @property that hits the API on the first try.
+
+            # These data members are tied to @properties of the same name
+            # without the '_' prefix.
+            # Upon reconnecting, we need to flag that the @property must
+            # refresh; otherwise we will retrieve old values that may be invalid.
+            self._active_tool_index = None
+            self._tool_z_offsets = None
+            self._axis_limits = None
+
+            # To save time upon connecting, let's just hit the API on the
+            # first try for all the @properties we care about.
+            self.active_tool_index
+            self.tool_z_offsets
+            self.axis_limits
             #pprint.pprint(json.loads(requests.get("http://127.0.0.1/machine/status").text))
             # TODO: recover absolute/relative from object model instead of enforcing it here.
             self._set_absolute_moves(force=True)
@@ -254,6 +269,45 @@ class JubileeMotionController(Inpromptu):
         # Return the cached value.
         return self._active_tool_index
 
+    @property
+    @cli_method
+    def tool_z_offsets(self):
+        """Return (in tool order) a list of tool's z offsets"""
+        # Starting from fresh connection, query from the Duet.
+        if self._tool_z_offsets is None:
+            try:
+                response = json.loads(self.gcode("M409 K\"tools\""))["result"]
+                #pprint.pprint(response)
+                self._tool_z_offsets = [] # Create a fresh list.
+                for tool_data in response:
+                    tool_z_offset = tool_data["offsets"][2] # Pull Z axis
+                    self._tool_z_offsets.append(tool_z_offset)
+            except ValueError as e:
+                print("Error occurred trying to read z offsets of all tools!")
+                raise e
+        # Return the cached value.
+        return self._tool_z_offsets
+
+
+    @property
+    @cli_method
+    def axis_limits(self):
+        """Return (in XYZU order) a list of tuples specifying (min, max) axis limit"""
+        # Starting from fresh connection, query from the Duet.
+        if self._axis_limits is None:
+            try:
+                response = json.loads(self.gcode("M409 K\"move.axes\""))["result"]
+                #pprint.pprint(response)
+                self._axis_limits = [] # Create a fresh list.
+                for axis_data in response:
+                    axis_min = axis_data["min"]
+                    axis_max = axis_data["max"]
+                    self._axis_limits.append((axis_min, axis_max))
+            except ValueError as e:
+                print("Error occurred trying to read axis limits on each axis!")
+                raise e
+        # Return the cached value.
+        return self._axis_limits
 
     @cli_method
     @machine_is_homed

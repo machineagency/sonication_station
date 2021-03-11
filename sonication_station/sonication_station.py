@@ -22,6 +22,7 @@ def protocol_method(func):
 
 def requires_safe_z(func):
     @wraps(func) # We need this for @cli_method to work
+    # Note: this fn should take the tallest tool into account since Duet does not.
     def safe_z_check(self, *args, **kwds):
         if self.safe_z is None:
             raise MachineStateError("Error: a safe_z height must first be defined before invoking this function.")
@@ -52,7 +53,8 @@ class SonicationStation(JubileeMotionController):
     WELL_COUNT_TO_ROWS = {96: (8, 12),
                           48: (6, 8),
                            6: (2, 3),
-                           12: (3, 4)}
+		          24: (4, 6),
+                          12: (3, 4)} # rows, columns
     DECK_PLATE_COUNT = 6
     DECK_PLATE_NOMINAL_CORNERS = [(287.75, 289.75),
                                   (148.25, 289.5),
@@ -181,9 +183,20 @@ class SonicationStation(JubileeMotionController):
         """
         if z is None:
         # Get current height.
-            _, _, self.deck_config['safe_z'] = self.position
-        elif z > 0:
-            self.deck_config['safe_z'] = z
+            _, _, z = self.position
+
+        if z < 0:
+            raise UserInputError("Error: safe_z value cannot be under zero.")
+
+        max_z_height = self.axis_limits[2][1] # [Z axis][max limit]
+        # Duet specifies tool z offsets as negative, so we want the most negative one (min).
+        max_tool_z_offset = min(self.tool_z_offsets)
+        max_safe_z = max_z_height + max_tool_z_offset
+        if z > max_safe_z:
+            raise UserInputError(f"Error: Cannot set safe_z height to {z}mm. " \
+                f"The tallest tool restricts maximum height above the bed to {max_safe_z}mm.")
+
+        self.deck_config['safe_z'] = z
 
 
     @cli_method
@@ -210,6 +223,7 @@ class SonicationStation(JubileeMotionController):
         if self.active_tool_index == SonicationStation.CAMERA_TOOL_INDEX:
             self.disable_live_video()
         self.move_xy_absolute()
+        print(self.safe_z)
         super().park_tool()
 
 
@@ -260,7 +274,7 @@ class SonicationStation(JubileeMotionController):
         If no file path is specified and no initial config file was specified, error out.
         """
         if file_path is None and self.deck_config_filepath is None:
-            raise UserInputError("Error: no file path is specified from which to load the deck configuration.")
+            raise UserInputError("Error: no file path is specified to load the deck configuration from.")
         if file_path is None:
             # This is effectively a "reload."
             file_path = self.deck_config_filepath
@@ -270,6 +284,7 @@ class SonicationStation(JubileeMotionController):
             self.deck_config = json.loads(config_file.read())
             # Update the load location so we default to saving the file we loaded from.
             file_path = self.deck_config_filepath
+        self.check_config()
 
 
     @cli_method
@@ -278,6 +293,7 @@ class SonicationStation(JubileeMotionController):
         If no filepath is specified, save from the initial config file specified on instantiation.
         If no filepath is specified and no initial config file was specified.
         """
+        self.check_config()
         if file_path is None and self.deck_config_filepath is None:
             raise UserInputError("Error: no file path is specified from which to save the deck configuration.")
         if file_path is None:
@@ -293,6 +309,13 @@ class SonicationStation(JubileeMotionController):
     def show_deck_config(self):
         """Render the deck configuration."""
         pprint.pprint(self.deck_config)
+        self.check_config()
+
+    def check_config(self):
+        """Print warnings related to issues in the config."""
+        # Trigger a warning if the current deck config violates safe_z.
+        # Do this by trying to set it.
+        self.safe_z = self.deck_config["safe_z"]
 
 
     @cli_method
@@ -520,7 +543,7 @@ class SonicationStation(JubileeMotionController):
         column_index -=1 # Convert 1-indexed plates to 0-indexing.
         x,y = self._get_well_position(deck_index, row_index, column_index)
 
-        print(f"Moving to: ({x:.3f}, {y:.3f})")
+        print(f"Moving to: ({x:.3f}, {y:.3f}) | {row_letter}{column_index + 1}")
         self.move_xy_absolute(x,y) # Position over the well at safe z height.
         self.move_xyz_absolute(z=plunge_height, wait=True)
         print(f"Sonicating for {seconds} seconds!!")
