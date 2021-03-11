@@ -69,7 +69,7 @@ class SonicationStation(JubileeMotionController):
 
     CAMERA_FOCAL_LENGTH_OFFSET = 19
 
-    IDLE_Z_HEIGHT = 150
+    IDLE_Z_HEIGHT = 300
 
     # TODO: this info should be read from the machine model.
     CAMERA_TOOL_INDEX = 0
@@ -199,6 +199,37 @@ class SonicationStation(JubileeMotionController):
         self.deck_config['safe_z'] = z
 
 
+    @property
+    @cli_method
+    def idle_z(self):
+        """Return the \"idle z\" height."""
+        return self.deck_config["idle_z"]
+
+
+    @idle_z.setter
+    @cli_method
+    def idle_z(self, z: float = None):
+        """Set the specified height to be the \"idle z\" height.
+        If no height is specified, the machine will take the current height.
+        """
+        if z is None:
+        # Get current height.
+            _, _, z = self.position
+
+        if z < 0:
+            raise UserInputError("Error: idle_z value cannot be under zero.")
+
+        max_z_height = self.axis_limits[2][1] # [Z axis][max limit]
+        # Duet specifies tool z offsets as negative, so we want the most negative one (min).
+        max_tool_z_offset = min(self.tool_z_offsets)
+        max_idle_z = max_z_height + max_tool_z_offset
+        if z > max_idle_z:
+            raise UserInputError(f"Error: Cannot set idle_z height to {z}mm. " \
+                f"The tallest tool restricts maximum height above the bed to {max_idle_z}mm.")
+
+        self.deck_config['idle_z'] = z
+
+
     @cli_method
     def move_xy_absolute(self, x: float = None, y: float = None, wait: bool = False):
         """Move in XY, but include the safe Z retract first if defined."""
@@ -232,7 +263,7 @@ class SonicationStation(JubileeMotionController):
         response = input("WARNING: is the deck clear of plates? [y/n]")
         if response.lower() in ["y", "yes"]:
             super().home_all()
-            self.move_xyz_absolute(z=self.deck_config["idle_z"])
+            self.move_xyz_absolute(z=self.idle_z)
         else:
             print("Aborting homing. Please remove all plates from the deck first.")
 
@@ -316,6 +347,7 @@ class SonicationStation(JubileeMotionController):
         # Trigger a warning if the current deck config violates safe_z.
         # Do this by trying to set it.
         self.safe_z = self.deck_config["safe_z"]
+        self.idle_z = self.deck_config["idle_z"]
 
 
     @cli_method
@@ -653,7 +685,7 @@ class SonicationStation(JubileeMotionController):
         self.disable_live_video()
         if all(self.axes_homed):
             self.park_tool()
-            self.move_xyz_absolute(z=self.deck_config["idle_z"])
+            self.move_xyz_absolute(z=self.idle_z)
         super().__exit__(args)
 
     def cmdloop(self):
