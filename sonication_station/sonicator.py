@@ -15,7 +15,7 @@ class Sonicator(object):
         self.sonicator_enable = digitalio.DigitalInOut(board.D4)
         self.sonicator_enable.direction = digitalio.Direction.OUTPUT
         self.sonicator_enable.value = False
-        self.dac.normalized_value = 0.50
+        self.dac.normalized_value = 0.0
 
     def sonicate(self, exposure_time: float = 1.0, power: float = 0.4,
                  pulse_duty_cycle: float = 0.5, pulse_interval: float = 1.0):
