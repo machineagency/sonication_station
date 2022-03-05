@@ -13,3 +13,9 @@ Here are some options:
 * [PCBWay](http://pcbway.com/)
     * [instructions for gerber generation](https://www.pcbway.com/blog/help_center/Generate_Gerber_file_from_Kicad.html)
 * Bay Area Circuits has a No-Silk-No-Soldermask 24-hour [Bare Bones Special](https://bayareacircuits.com/prototype-printed-circuit-boards-pcbs/) for time crunched prototypes.
+
+## Assembly
+
+This PCB can be assembled by hand with some tweezers, a microscope (or cheap microscope webcam), and, optionally, a stencil.
+Parts will need to be ordered from the BOM.
+(You can regenerate the BOM from the native Kicad files.)
