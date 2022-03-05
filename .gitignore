@@ -111,3 +111,8 @@ bootstrap.*
 
 # pytest
 .pytest_cache
+
+
+# Kicad PCB
+*-backups/
+*-info-cache
