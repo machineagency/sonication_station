@@ -22,7 +22,7 @@ M569 P3 S0                  ; Drive 3 direction | Front Left Z
 M569 P4 S0                  ; Drive 4 direction | Front Right Z
 M569 P5 S0                  ; Drive 5 direction | Back Z
 
-M569 P2 S1                  ; Drive 2 direction | Toolchanger Actuator
+M569 P2 S0                  ; Drive 2 direction | Toolchanger Actuator
 
 ; Machine Mode
 M453                                    ; Select CNC Mode. (Does not restore Z after releasing tool)
