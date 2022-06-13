@@ -25,5 +25,5 @@ setuptools.setup(
     data_files= [('script_contents', ['sonication_station/launch_camera_alignment_feed.sh',
                                       'sonication_station/web_video_feed/stream_simple.html',
                                       'sonication_station/web_video_feed/overlay.png'])],
-    install_requires=['inpromptu', 'adafruit-mcp4725', 'Adafruit-Blinka']
+    install_requires=['inpromptu==0.0.5', 'adafruit-mcp4725', 'Adafruit-Blinka']
 )
